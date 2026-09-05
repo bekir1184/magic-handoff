@@ -1,0 +1,49 @@
+name: MagicHandoff
+options:
+  bundleIdPrefix: com.bekirersever
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # Prototype: ad-hoc signing. Set a team / Developer ID for distribution.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+targets:
+  MagicHandoff:
+    type: application
+    platform: macOS
+    sources:
+      - path: MagicHandoff
+    info:
+      path: MagicHandoff/Info.plist
+      properties:
+        CFBundleDisplayName: Magic Handoff
+        CFBundleName: Magic Handoff
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"
+        NSBluetoothAlwaysUsageDescription: "Magic Handoff uses Bluetooth to move your Magic Keyboard, Trackpad and Mouse between this Mac and your other Mac."
+        NSLocalNetworkUsageDescription: "Magic Handoff uses the local network to find your other Mac and coordinate the handoff."
+        NSBonjourServices:
+          - _magichandoff._tcp
+        NSHumanReadableCopyright: "© 2026 Bekir Ersever"
+    entitlements:
+      path: MagicHandoff/MagicHandoff.entitlements
+      properties:
+        com.apple.security.device.bluetooth: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bekirersever.magichandoff
+        PRODUCT_NAME: Magic Handoff
+        ENABLE_HARDENED_RUNTIME: false
+        ENABLE_APP_SANDBOX: false
+        SWIFT_STRICT_CONCURRENCY: minimal
+        GENERATE_INFOPLIST_FILE: false
