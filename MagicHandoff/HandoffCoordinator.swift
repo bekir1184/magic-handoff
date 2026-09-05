@@ -6,7 +6,7 @@ import Combine
 /// Send = release here, then ask the peer to take.
 /// Take = ask the peer to release (best effort), then take here.
 final class HandoffCoordinator: ObservableObject {
-    enum PeerStatus: Equatable { case none, offline, checking, online }
+    enum PeerStatus: Equatable { case none, offline, checking, online, codeMismatch }
 
     @Published private(set) var peerStatus: PeerStatus = .none
     @Published private(set) var peerDevices: [DeviceInfo] = []
@@ -52,6 +52,17 @@ final class HandoffCoordinator: ObservableObject {
 
     var peerName: String { settings.peerName ?? selectedPeer?.name ?? "other Mac" }
 
+    /// The app is usable once both Macs share a code and the other Mac is chosen.
+    var isSetUp: Bool { settings.hasPairingCode && settings.peerID != nil }
+
+    /// Does that Mac advertise the same pairing code as this one?
+    func usesSameCode(_ peer: Peer) -> Bool {
+        guard let tag = peer.tag, let mine = settings.advertisedTag else { return false }
+        return tag == mine
+    }
+
+    var matchingPeers: [Peer] { peers.peers.filter { usesSameCode($0) } }
+
     func selectPeer(_ peer: Peer?) {
         settings.peerID = peer?.id
         settings.peerName = peer?.name
@@ -59,8 +70,15 @@ final class HandoffCoordinator: ObservableObject {
     }
 
     private func peerListChanged() {
+        // First run: the moment exactly one Mac with the same code shows up, use it.
+        if settings.peerID == nil, matchingPeers.count == 1, let only = matchingPeers.first {
+            bluetooth.appendLog("Found \(only.name) with the same code; connected")
+            selectPeer(only)
+            return
+        }
         guard settings.peerID != nil else { peerStatus = .none; return }
-        guard selectedPeer != nil else { peerStatus = .offline; return }
+        guard let peer = selectedPeer else { peerStatus = .offline; return }
+        if !usesSameCode(peer) { peerStatus = .codeMismatch; return }
         ping()
     }
 
@@ -69,6 +87,7 @@ final class HandoffCoordinator: ObservableObject {
             peerStatus = settings.peerID == nil ? .none : .offline
             return
         }
+        guard usesSameCode(peer) else { peerStatus = .codeMismatch; return }
         if peerStatus != .online { peerStatus = .checking }
         peers.request(Message(type: "ping"), to: peer, timeout: 6) { [weak self] result in
             guard let self else { return }

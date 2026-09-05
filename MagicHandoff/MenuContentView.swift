@@ -6,74 +6,79 @@ struct MenuContentView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.openSettings) private var openSettings
 
-    private var hasPeer: Bool { settings.peerID != nil }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            peerLine
-
-            if !bluetooth.bluetoothAuthorized {
-                Label("Bluetooth access required", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.callout)
-            }
-
-            if bluetooth.peripherals.isEmpty {
-                Text("No Magic keyboard, trackpad or mouse is known to this Mac yet.\nPair one in System Settings → Bluetooth, or scan for nearby devices below.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
+            if handoff.isSetUp {
+                connectedContent
             } else {
-                ForEach(bluetooth.peripherals) { p in
-                    PeripheralRow(
-                        peripheral: p,
-                        hasPeer: hasPeer,
-                        peerName: handoff.peerName,
-                        onSend: { handoff.send([p.id]) },
-                        onTake: { handoff.take([p.id]) },
-                        onRelease: { bluetooth.release(p.id) }
-                    )
-                    .contextMenu {
-                        Button("Release (forget on this Mac only)") { bluetooth.release(p.id) }
-                        Button("Remove from list") { bluetooth.forget(p.id) }
-                    }
-                }
+                SetupView()
             }
-
-            if hasPeer {
-                HStack {
-                    Button("Send all to \(handoff.peerName)") { handoff.sendAll() }
-                        .disabled(handoff.busy || handoff.peerStatus != .online || !bluetooth.anyConnected)
-                    Button("Take all") { handoff.takeAll() }
-                        .disabled(handoff.busy)
-                }
-                .controlSize(.small)
-            }
-
-            if let error = handoff.lastError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider()
-            LogView(lines: bluetooth.log, onClear: bluetooth.clearLog)
-            Divider()
-
-            HStack {
-                Button("Refresh") { bluetooth.refresh(); handoff.ping() }
-                Button(bluetooth.isScanning ? "Scanning…" : "Scan nearby") { bluetooth.scanNearby() }
-                    .disabled(bluetooth.isScanning)
-                Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .keyboardShortcut("q")
-            }
-            .controlSize(.small)
         }
         .padding(12)
         .frame(width: 380)
+    }
+
+    @ViewBuilder
+    private var connectedContent: some View {
+        peerLine
+
+        if !bluetooth.bluetoothAuthorized {
+            Label("Bluetooth access required", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.callout)
+        }
+
+        if bluetooth.peripherals.isEmpty {
+            Text("No Magic keyboard, trackpad or mouse is known to this Mac yet.\nPair one in System Settings → Bluetooth, or scan for nearby devices below.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 8)
+        } else {
+            ForEach(bluetooth.peripherals) { p in
+                PeripheralRow(
+                    peripheral: p,
+                    hasPeer: true,
+                    peerName: handoff.peerName,
+                    onSend: { handoff.send([p.id]) },
+                    onTake: { handoff.take([p.id]) },
+                    onRelease: { bluetooth.release(p.id) }
+                )
+                .contextMenu {
+                    Button("Release (forget on this Mac only)") { bluetooth.release(p.id) }
+                    Button("Remove from list") { bluetooth.forget(p.id) }
+                }
+            }
+        }
+
+        HStack {
+            Button("Send all to \(handoff.peerName)") { handoff.sendAll() }
+                .disabled(handoff.busy || handoff.peerStatus != .online || !bluetooth.anyConnected)
+            Button("Take all") { handoff.takeAll() }
+                .disabled(handoff.busy)
+        }
+        .controlSize(.small)
+
+        if let error = handoff.lastError {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Divider()
+        LogView(lines: bluetooth.log, onClear: bluetooth.clearLog)
+        Divider()
+
+        HStack {
+            Button("Refresh") { bluetooth.refresh(); handoff.ping() }
+            Button(bluetooth.isScanning ? "Scanning…" : "Scan nearby") { bluetooth.scanNearby() }
+                .disabled(bluetooth.isScanning)
+            Spacer()
+            Button("Quit") { NSApplication.shared.terminate(nil) }
+                .keyboardShortcut("q")
+        }
+        .controlSize(.small)
     }
 
     private var header: some View {
@@ -92,20 +97,10 @@ struct MenuContentView: View {
         }
     }
 
-    @ViewBuilder
     private var peerLine: some View {
         HStack(spacing: 6) {
             Circle().fill(peerColor).frame(width: 7, height: 7)
-            if hasPeer {
-                Text("\(handoff.peerName) · \(peerStatusText)")
-            } else {
-                Text("No other Mac set up")
-                Button("Set up…") {
-                    openSettings()
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                .buttonStyle(.link)
-            }
+            Text("\(handoff.peerName) · \(peerStatusText)")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -117,6 +112,7 @@ struct MenuContentView: View {
         case .offline: return "offline"
         case .checking: return "checking…"
         case .online: return "online"
+        case .codeMismatch: return "uses a different code"
         }
     }
 
@@ -126,6 +122,7 @@ struct MenuContentView: View {
         case .offline: return .red
         case .checking: return .yellow
         case .online: return .green
+        case .codeMismatch: return .orange
         }
     }
 }

@@ -27,6 +27,8 @@ struct Message: Codable {
 struct Peer: Identifiable, Equatable {
     let id: String
     let name: String
+    /// Short tag of the pairing code that Mac uses (see AppSettings.advertisedTag).
+    let tag: String?
     let endpoint: NWEndpoint
 }
 
@@ -114,7 +116,11 @@ final class PeerService: ObservableObject {
         }
         do {
             let l = try NWListener(using: params)
-            let txt = NWTXTRecord(["id": settings.thisMacID, "name": settings.thisMacName])
+            let txt = NWTXTRecord([
+                "id": settings.thisMacID,
+                "name": settings.thisMacName,
+                "tag": settings.advertisedTag ?? "",
+            ])
             let serviceName = String("\(settings.thisMacName) [\(settings.thisMacID.prefix(4))]".prefix(60))
             l.service = NWListener.Service(name: serviceName, type: Self.serviceType, domain: nil, txtRecord: txt)
             l.stateUpdateHandler = { [weak self] state in
@@ -197,7 +203,8 @@ final class PeerService: ObservableObject {
             guard case .bonjour(let txt) = result.metadata,
                   let id = txt.dictionary["id"],
                   id != settings.thisMacID else { continue }
-            found.append(Peer(id: id, name: txt.dictionary["name"] ?? "Mac", endpoint: result.endpoint))
+            let tag = txt.dictionary["tag"].flatMap { $0.isEmpty ? nil : $0 }
+            found.append(Peer(id: id, name: txt.dictionary["name"] ?? "Mac", tag: tag, endpoint: result.endpoint))
         }
         found.sort { $0.name < $1.name }
         DispatchQueue.main.async {

@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var handoff: HandoffCoordinator
     @EnvironmentObject private var peers: PeerService
+    @State private var otherCode = ""
 
     var body: some View {
         Form {
@@ -14,14 +15,25 @@ struct SettingsView: View {
             }
 
             Section("Pairing code") {
-                Text("Type the same code on both Macs. It becomes the key that authenticates and encrypts everything they say to each other.")
+                Text("Both Macs must hold the same code. It is the key that authenticates and encrypts everything they say to each other.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
-                    TextField("XXXX-XXXX", text: $settings.pairingCode)
+                    Text(AppSettings.format(settings.pairingCode))
+                        .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button("New code") { settings.pairingCode = AppSettings.generateCode() }
+                }
+                HStack {
+                    TextField("Enter the other Mac's code instead", text: $otherCode)
                         .font(.system(.body, design: .monospaced))
                         .textFieldStyle(.roundedBorder)
-                    Button("Generate") { settings.pairingCode = AppSettings.generateCode() }
+                    Button("Use") {
+                        settings.pairingCode = AppSettings.format(otherCode)
+                        otherCode = ""
+                    }
+                    .disabled(AppSettings.normalize(otherCode).count < 8)
                 }
                 if let fingerprint = settings.fingerprint {
                     LabeledContent("Fingerprint", value: fingerprint)
@@ -46,6 +58,11 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
+                        if !handoff.usesSameCode(peer) {
+                            Text("different code")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
                         if settings.peerID == peer.id {
                             Label("Selected", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
@@ -76,6 +93,7 @@ struct SettingsView: View {
         case .offline: return "Offline"
         case .checking: return "Checking…"
         case .online: return "Online · \(handoff.peerDevices.filter { $0.connected == true }.count) device(s) connected there"
+        case .codeMismatch: return "That Mac uses a different pairing code"
         }
     }
 }

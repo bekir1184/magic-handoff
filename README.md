@@ -29,7 +29,7 @@ scripts/build.sh --run
 
 Or run `xcodegen generate` and open `MagicHandoff.xcodeproj` in Xcode. macOS asks for Bluetooth and Local Network access on first launch.
 
-Install the app on both Macs, open Settings from the menu bar icon, generate a pairing code on one Mac and type it on the other, then select the other Mac in the list.
+Install the app on both Macs. Each Mac shows a pairing code in the menu bar popover on first launch; type one Mac's code into the other and the two connect automatically. Until then the popover only shows the setup steps.
 
 Keep the checkout outside iCloud Drive (for example `~/Developer`): file-provider extended attributes on synced folders break code signing.
 

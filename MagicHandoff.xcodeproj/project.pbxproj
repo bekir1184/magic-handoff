@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C270C603176F934C2E500FEE /* SettingsView.swift */; };
 		67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6212514326A7093BE1917A86 /* Peripheral.swift */; };
+		7C5E9149429ED536F1BB9CC5 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8789E2642F3F88574784AA86 /* SetupView.swift */; };
 		88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249E0137FAA0775B337B47D4 /* PeerService.swift */; };
 		91B66D1D358CE1A884615E4E /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 099CF09DE5923FE879A5BA30 /* AppSettings.swift */; };
 		C57353F6B88DB46A866E29A3 /* HandoffCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */; };
@@ -25,6 +26,7 @@
 		3A13DDF06F44B1278A70A1EB /* MagicHandoff.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MagicHandoff.entitlements; sourceTree = "<group>"; };
 		429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffCoordinator.swift; sourceTree = "<group>"; };
 		6212514326A7093BE1917A86 /* Peripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Peripheral.swift; sourceTree = "<group>"; };
+		8789E2642F3F88574784AA86 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		8C6A3D412D96C660A6243333 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicHandoffApp.swift; sourceTree = "<group>"; };
 		AFF173F385ACF42B7932F955 /* SleepMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMonitor.swift; sourceTree = "<group>"; };
@@ -47,6 +49,7 @@
 				249E0137FAA0775B337B47D4 /* PeerService.swift */,
 				6212514326A7093BE1917A86 /* Peripheral.swift */,
 				C270C603176F934C2E500FEE /* SettingsView.swift */,
+				8789E2642F3F88574784AA86 /* SetupView.swift */,
 				AFF173F385ACF42B7932F955 /* SleepMonitor.swift */,
 			);
 			path = MagicHandoff;
@@ -135,6 +138,7 @@
 				88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */,
 				67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */,
 				08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */,
+				7C5E9149429ED536F1BB9CC5 /* SetupView.swift in Sources */,
 				F9BC46BE5C4F76F676A87B70 /* SleepMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
