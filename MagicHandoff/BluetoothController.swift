@@ -389,6 +389,11 @@ extension BluetoothController {
                 self.setState(IOBluetoothDevice(addressString: id)?.isConnected() == true ? .connected : .disconnected, for: id)
                 self.refresh()
             }
+        } else if error == 4 {
+            // HCI "page timeout": the device never answered. Magic devices ignore
+            // other hosts while connected, so it is almost certainly on the other Mac.
+            append("\(name): no answer (error 4). It is probably connected to your other Mac; set that Mac up so Take can ask it to let go.")
+            setState(.failed("held by another Mac?"), for: id)
         } else {
             append("\(name): pairing failed (\(error))")
             setState(.failed("pairing \(error)"), for: id)
