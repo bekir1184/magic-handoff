@@ -28,6 +28,10 @@ final class BluetoothController: NSObject, ObservableObject {
     private var central: CBCentralManager?
     private var inquiry: IOBluetoothDeviceInquiry?
 
+    private enum Op { case release, take }
+    /// Completion handlers waiting for a release/take to reach a terminal state.
+    private var waiters: [String: [(op: Op, callback: (Bool) -> Void)]] = [:]
+
     private enum Tuning {
         /// `-remove` completes asynchronously inside bluetoothd; pairing right
         /// after it races the unbond and fails.
@@ -170,9 +174,34 @@ final class BluetoothController: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Interface for the handoff coordinator
+
+    func appendLog(_ line: String) { append(line) }
+
+    func deviceInfo(_ id: String) -> DeviceInfo? {
+        peripherals.first { $0.id == id }.map {
+            DeviceInfo(id: $0.id, name: $0.name, kind: $0.kind.rawValue, connected: $0.state == .connected)
+        }
+    }
+
+    func deviceInfos() -> [DeviceInfo] {
+        peripherals.compactMap { deviceInfo($0.id) }
+    }
+
+    /// Adds a device announced by the other Mac so it can be taken here. Main queue only.
+    func ensureKnown(_ info: DeviceInfo) {
+        guard known[info.id] == nil else { return }
+        let kind = Peripheral.Kind(rawValue: info.kind) ?? .other
+        known[info.id] = KnownDevice(name: info.name, kind: kind)
+        saveKnown()
+        peripherals.append(Peripheral(id: info.id, name: info.name, kind: kind, isPaired: false, state: .disconnected))
+        peripherals.sort { $0.name < $1.name }
+    }
+
     // MARK: - Release
 
-    func release(_ id: String) {
+    func release(_ id: String, completion: ((Bool) -> Void)? = nil) {
+        if let completion { addWaiter(id, .release, completion) }
         setState(.releasing, for: id)
         queue.async { [weak self] in
             guard let self else { return }
@@ -199,7 +228,8 @@ final class BluetoothController: NSObject, ObservableObject {
 
     // MARK: - Take
 
-    func take(_ id: String) {
+    func take(_ id: String, completion: ((Bool) -> Void)? = nil) {
+        if let completion { addWaiter(id, .take, completion) }
         setState(.taking("Connecting…"), for: id)
         queue.async { [weak self] in
             guard let self else { return }
@@ -282,8 +312,27 @@ final class BluetoothController: NSObject, ObservableObject {
 
     private func setState(_ state: Peripheral.State, for id: String) {
         DispatchQueue.main.async {
-            guard let i = self.peripherals.firstIndex(where: { $0.id == id }) else { return }
-            self.peripherals[i].state = state
+            if let i = self.peripherals.firstIndex(where: { $0.id == id }) {
+                self.peripherals[i].state = state
+            }
+            self.resolveWaiters(id: id, state: state)
+        }
+    }
+
+    private func addWaiter(_ id: String, _ op: Op, _ callback: @escaping (Bool) -> Void) {
+        waiters[id, default: []].append((op, callback))
+    }
+
+    /// Main queue only. Fires pending completions once the state is terminal.
+    private func resolveWaiters(id: String, state: Peripheral.State) {
+        guard !state.isBusy, let pending = waiters[id], !pending.isEmpty else { return }
+        waiters[id] = nil
+        for w in pending {
+            switch (w.op, state) {
+            case (.release, .disconnected): w.callback(true)
+            case (.take, .connected): w.callback(true)
+            default: w.callback(false)
+            }
         }
     }
 

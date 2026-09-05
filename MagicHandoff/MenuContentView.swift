@@ -2,14 +2,16 @@ import SwiftUI
 
 struct MenuContentView: View {
     @EnvironmentObject private var bluetooth: BluetoothController
+    @EnvironmentObject private var handoff: HandoffCoordinator
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.openSettings) private var openSettings
+
+    private var hasPeer: Bool { settings.peerID != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Magic Handoff").font(.headline)
-                Spacer()
-                Text("prototype · phase 1").font(.caption).foregroundStyle(.secondary)
-            }
+            header
+            peerLine
 
             if !bluetooth.bluetoothAuthorized {
                 Label("Bluetooth access required", systemImage: "exclamationmark.triangle.fill")
@@ -18,29 +20,50 @@ struct MenuContentView: View {
             }
 
             if bluetooth.peripherals.isEmpty {
-                Text("No Magic keyboard, trackpad or mouse is paired with this Mac.\nPair one in System Settings → Bluetooth, or scan for nearby devices below.")
+                Text("No Magic keyboard, trackpad or mouse is known to this Mac yet.\nPair one in System Settings → Bluetooth, or scan for nearby devices below.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
                 ForEach(bluetooth.peripherals) { p in
-                    PeripheralRow(peripheral: p,
-                                  onRelease: { bluetooth.release(p.id) },
-                                  onTake: { bluetooth.take(p.id) })
-                        .contextMenu {
-                            Button("Remove from list") { bluetooth.forget(p.id) }
-                        }
+                    PeripheralRow(
+                        peripheral: p,
+                        hasPeer: hasPeer,
+                        peerName: handoff.peerName,
+                        onSend: { handoff.send([p.id]) },
+                        onTake: { handoff.take([p.id]) },
+                        onRelease: { bluetooth.release(p.id) }
+                    )
+                    .contextMenu {
+                        Button("Release (forget on this Mac only)") { bluetooth.release(p.id) }
+                        Button("Remove from list") { bluetooth.forget(p.id) }
+                    }
                 }
             }
 
+            if hasPeer {
+                HStack {
+                    Button("Send all to \(handoff.peerName)") { handoff.sendAll() }
+                        .disabled(handoff.busy || handoff.peerStatus != .online || !bluetooth.anyConnected)
+                    Button("Take all") { handoff.takeAll() }
+                        .disabled(handoff.busy)
+                }
+                .controlSize(.small)
+            }
+
+            if let error = handoff.lastError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Divider()
-
             LogView(lines: bluetooth.log, onClear: bluetooth.clearLog)
-
             Divider()
 
             HStack {
-                Button("Refresh") { bluetooth.refresh() }
+                Button("Refresh") { bluetooth.refresh(); handoff.ping() }
                 Button(bluetooth.isScanning ? "Scanning…" : "Scan nearby") { bluetooth.scanNearby() }
                     .disabled(bluetooth.isScanning)
                 Spacer()
@@ -50,14 +73,70 @@ struct MenuContentView: View {
             .controlSize(.small)
         }
         .padding(12)
-        .frame(width: 360)
+        .frame(width: 380)
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Magic Handoff").font(.headline)
+            Spacer()
+            if handoff.busy { ProgressView().controlSize(.small) }
+            Button {
+                openSettings()
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
+        }
+    }
+
+    @ViewBuilder
+    private var peerLine: some View {
+        HStack(spacing: 6) {
+            Circle().fill(peerColor).frame(width: 7, height: 7)
+            if hasPeer {
+                Text("\(handoff.peerName) · \(peerStatusText)")
+            } else {
+                Text("No other Mac set up")
+                Button("Set up…") {
+                    openSettings()
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .buttonStyle(.link)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private var peerStatusText: String {
+        switch handoff.peerStatus {
+        case .none: return "not set up"
+        case .offline: return "offline"
+        case .checking: return "checking…"
+        case .online: return "online"
+        }
+    }
+
+    private var peerColor: Color {
+        switch handoff.peerStatus {
+        case .none: return .gray
+        case .offline: return .red
+        case .checking: return .yellow
+        case .online: return .green
+        }
     }
 }
 
 private struct PeripheralRow: View {
     let peripheral: Peripheral
-    let onRelease: () -> Void
+    let hasPeer: Bool
+    let peerName: String
+    let onSend: () -> Void
     let onTake: () -> Void
+    let onRelease: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -77,9 +156,15 @@ private struct PeripheralRow: View {
             if peripheral.state.isBusy {
                 ProgressView().controlSize(.small)
             } else if peripheral.state == .connected {
-                Button("Release", action: onRelease).controlSize(.small)
+                if hasPeer {
+                    Button("Send", action: onSend).controlSize(.small)
+                        .help("Hand this device to \(peerName)")
+                } else {
+                    Button("Release", action: onRelease).controlSize(.small)
+                }
             } else {
                 Button("Take", action: onTake).controlSize(.small)
+                    .help(hasPeer ? "Ask \(peerName) to let go, then connect it here" : "Connect it here")
             }
         }
         .padding(.vertical, 2)
@@ -119,7 +204,7 @@ private struct LogView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(height: 110)
+                .frame(height: 120)
                 .onChange(of: lines.count) { _, n in
                     if n > 0 { proxy.scrollTo(n - 1, anchor: .bottom) }
                 }

@@ -4,9 +4,11 @@ A macOS menu bar app that moves your Magic Keyboard, Magic Trackpad and Magic Mo
 
 ## Status
 
-**Phase 1 (this version):** single-Mac prototype. Lists paired Magic devices; *Release* removes the bond, *Take* reconnects or pairs from scratch, *Scan nearby* discovers unpaired devices. Verified on macOS 26.5: a device released on this Mac is found by the scan and re-paired without any system dialog.
+**Phase 1 – done.** Single-Mac Bluetooth layer: list paired Magic devices, *Release* removes the bond, *Take* reconnects or pairs from scratch, *Scan nearby* discovers unpaired devices. Verified on macOS 26.5 without any system dialog.
 
-**Phase 2 (planned):** the two Macs discover each other over Bonjour and coordinate the handoff over an encrypted TCP channel; automatic handoff on sleep / lid close; global hotkey.
+**Phase 2 – in progress.** Two Macs find each other over Bonjour and talk over TLS with a pre-shared key derived from a pairing code you type on both. *Send* releases a device here and asks the other Mac to take it; *Take* asks the other Mac to let go and connects it here. Optional automatic handoff when the Mac goes to sleep.
+
+**Later:** global hotkey, take-back on wake, menu bar polish, signed builds.
 
 ## How it works
 
@@ -25,7 +27,9 @@ Requirements: macOS 14+, Xcode 26, [XcodeGen](https://github.com/yonaskolb/Xcode
 scripts/build.sh --run
 ```
 
-Or run `xcodegen generate` and open `MagicHandoff.xcodeproj` in Xcode. macOS asks for Bluetooth access on first launch.
+Or run `xcodegen generate` and open `MagicHandoff.xcodeproj` in Xcode. macOS asks for Bluetooth and Local Network access on first launch.
+
+Install the app on both Macs, open Settings from the menu bar icon, generate a pairing code on one Mac and type it on the other, then select the other Mac in the list.
 
 Keep the checkout outside iCloud Drive (for example `~/Developer`): file-provider extended attributes on synced folders break code signing.
 

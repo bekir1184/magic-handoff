@@ -7,19 +7,29 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C270C603176F934C2E500FEE /* SettingsView.swift */; };
 		67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6212514326A7093BE1917A86 /* Peripheral.swift */; };
+		88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249E0137FAA0775B337B47D4 /* PeerService.swift */; };
+		91B66D1D358CE1A884615E4E /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 099CF09DE5923FE879A5BA30 /* AppSettings.swift */; };
+		C57353F6B88DB46A866E29A3 /* HandoffCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */; };
 		C6EA3AF35F6DF7726E0BC925 /* BluetoothController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36E7DA6257A2BA2018AC97A /* BluetoothController.swift */; };
 		EBE483ADC846AF55BE31A833 /* MagicHandoffApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */; };
 		EF03DA061C6546C75EE07C3A /* MenuContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF65550F4F0F11B3B2F5CE7 /* MenuContentView.swift */; };
+		F9BC46BE5C4F76F676A87B70 /* SleepMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF173F385ACF42B7932F955 /* SleepMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		099CF09DE5923FE879A5BA30 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		148276FD3834B493CD92DB77 /* MagicHandoff.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MagicHandoff.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		249E0137FAA0775B337B47D4 /* PeerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerService.swift; sourceTree = "<group>"; };
 		3A13DDF06F44B1278A70A1EB /* MagicHandoff.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MagicHandoff.entitlements; sourceTree = "<group>"; };
+		429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffCoordinator.swift; sourceTree = "<group>"; };
 		6212514326A7093BE1917A86 /* Peripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Peripheral.swift; sourceTree = "<group>"; };
 		8C6A3D412D96C660A6243333 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicHandoffApp.swift; sourceTree = "<group>"; };
+		AFF173F385ACF42B7932F955 /* SleepMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMonitor.swift; sourceTree = "<group>"; };
 		BEF65550F4F0F11B3B2F5CE7 /* MenuContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuContentView.swift; sourceTree = "<group>"; };
+		C270C603176F934C2E500FEE /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F36E7DA6257A2BA2018AC97A /* BluetoothController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -27,12 +37,17 @@
 		695676E4A9097318C2B91C30 /* MagicHandoff */ = {
 			isa = PBXGroup;
 			children = (
+				099CF09DE5923FE879A5BA30 /* AppSettings.swift */,
 				F36E7DA6257A2BA2018AC97A /* BluetoothController.swift */,
+				429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */,
 				8C6A3D412D96C660A6243333 /* Info.plist */,
 				3A13DDF06F44B1278A70A1EB /* MagicHandoff.entitlements */,
 				A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */,
 				BEF65550F4F0F11B3B2F5CE7 /* MenuContentView.swift */,
+				249E0137FAA0775B337B47D4 /* PeerService.swift */,
 				6212514326A7093BE1917A86 /* Peripheral.swift */,
+				C270C603176F934C2E500FEE /* SettingsView.swift */,
+				AFF173F385ACF42B7932F955 /* SleepMonitor.swift */,
 			);
 			path = MagicHandoff;
 			sourceTree = "<group>";
@@ -112,10 +127,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				91B66D1D358CE1A884615E4E /* AppSettings.swift in Sources */,
 				C6EA3AF35F6DF7726E0BC925 /* BluetoothController.swift in Sources */,
+				C57353F6B88DB46A866E29A3 /* HandoffCoordinator.swift in Sources */,
 				EBE483ADC846AF55BE31A833 /* MagicHandoffApp.swift in Sources */,
 				EF03DA061C6546C75EE07C3A /* MenuContentView.swift in Sources */,
+				88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */,
 				67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */,
+				08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */,
+				F9BC46BE5C4F76F676A87B70 /* SleepMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
