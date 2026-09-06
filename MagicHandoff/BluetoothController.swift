@@ -2,7 +2,7 @@ import Foundation
 import IOBluetooth
 import CoreBluetooth
 
-/// Phase 1 prototype: release and take Magic peripherals on a single Mac.
+/// Bluetooth layer: release and take Magic peripherals on this Mac.
 ///
 /// Mechanism:
 ///  - Release: the bond is removed through IOBluetoothDevice's private `-remove`
@@ -27,18 +27,25 @@ final class BluetoothController: NSObject, ObservableObject {
     private var refreshTimer: Timer?
     private var central: CBCentralManager?
     private var inquiry: IOBluetoothDeviceInquiry?
+    private var connectNotification: IOBluetoothUserNotification?
+    private var disconnectNotifications: [String: IOBluetoothUserNotification] = [:]
 
     private enum Op { case release, take }
     /// Completion handlers waiting for a release/take to reach a terminal state.
     private var waiters: [String: [(op: Op, callback: (Bool) -> Void)]] = [:]
+    /// When the current operation on a device started, for timing in the log.
+    private var opStarted: [String: Date] = [:]
 
     private enum Tuning {
         /// `-remove` completes asynchronously inside bluetoothd; pairing right
-        /// after it races the unbond and fails.
+        /// after it on the same Mac races the unbond and fails.
         static let unbondSettle: TimeInterval = 0.5
         /// DevicePair.start() pages forever against a device held by the other
         /// Mac, so we cap it.
-        static let pairTimeout: TimeInterval = 60
+        static let pairTimeout: TimeInterval = 45
+        /// After pairing reports success, how long to wait for the link before
+        /// nudging it with openConnection.
+        static let postPairGrace: TimeInterval = 3
         static let refreshInterval: TimeInterval = 2
         static let inquiryLength: UInt8 = 8
     }
@@ -49,6 +56,8 @@ final class BluetoothController: NSObject, ObservableObject {
         // first launch; IOBluetooth goes through the same coordinator.
         central = CBCentralManager(delegate: self, queue: nil)
         loadKnown()
+        connectNotification = IOBluetoothDevice.register(
+            forConnectNotifications: self, selector: #selector(deviceDidConnect(_:device:)))
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: Tuning.refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -64,7 +73,7 @@ final class BluetoothController: NSObject, ObservableObject {
             let snapshot: [LiveDevice] = devices.compactMap { d in
                 guard let addr = d.addressString else { return nil }
                 let kind = Self.kind(of: d)
-                guard kind != .other else { return nil }   // prototype: HID input devices only
+                guard kind != .other else { return nil }   // HID input devices only
                 return LiveDevice(id: addr, name: d.name ?? addr, kind: kind, paired: d.isPaired(), connected: d.isConnected())
             }
             DispatchQueue.main.async {
@@ -202,6 +211,7 @@ final class BluetoothController: NSObject, ObservableObject {
 
     func release(_ id: String, completion: ((Bool) -> Void)? = nil) {
         if let completion { addWaiter(id, .release, completion) }
+        opStarted[id] = Date()
         setState(.releasing, for: id)
         queue.async { [weak self] in
             guard let self else { return }
@@ -211,12 +221,12 @@ final class BluetoothController: NSObject, ObservableObject {
             let name = device.name ?? id
             if device.responds(to: Selector(("remove"))) {
                 device.perform(Selector(("remove")))
-                self.append("\(name): bond removed (-remove)")
+                self.append("\(name): bond removed (-remove) \(self.elapsed(id))")
                 self.setState(.disconnected, for: id)
             } else {
                 let r = device.closeConnection()
                 if r == kIOReturnSuccess {
-                    self.append("\(name): -remove unavailable, session closed with closeConnection")
+                    self.append("\(name): -remove unavailable, session closed with closeConnection \(self.elapsed(id))")
                     self.setState(.disconnected, for: id)
                 } else {
                     self.append("\(name): closeConnection failed (\(r))")
@@ -230,6 +240,7 @@ final class BluetoothController: NSObject, ObservableObject {
 
     func take(_ id: String, completion: ((Bool) -> Void)? = nil) {
         if let completion { addWaiter(id, .take, completion) }
+        opStarted[id] = Date()
         setState(.taking("Connecting…"), for: id)
         queue.async { [weak self] in
             guard let self else { return }
@@ -247,10 +258,11 @@ final class BluetoothController: NSObject, ObservableObject {
             if device.isPaired() {
                 let r = device.openConnection()
                 if device.isConnected() {
-                    self.append("\(name): connected via openConnection")
+                    self.append("\(name): connected via openConnection \(self.elapsed(id))")
+                    self.watchDisconnect(of: device, id: id)
                     self.setState(.connected, for: id); return
                 }
-                self.append("\(name): openConnection failed (\(r)); bond may be stale, removing it")
+                self.append("\(name): openConnection failed (\(r)) \(self.elapsed(id)); bond is stale, removing it")
                 if device.responds(to: Selector(("remove"))) {
                     device.perform(Selector(("remove")))
                 }
@@ -261,7 +273,6 @@ final class BluetoothController: NSObject, ObservableObject {
             }
 
             // 2) No bond: pair from scratch.
-            self.append("\(name): no bond, pairing from scratch")
             self.startPairing(id: id, name: name)
         }
     }
@@ -285,7 +296,7 @@ final class BluetoothController: NSObject, ObservableObject {
             DispatchQueue.main.async { self.clearPending(id) }
             setState(.failed("pairing \(r)"), for: id)
         } else {
-            append("\(name): pairing started, touch the device or power-cycle it")
+            append("\(name): pairing started \(elapsed(id))")
         }
     }
 
@@ -306,6 +317,38 @@ final class BluetoothController: NSObject, ObservableObject {
         pendingPairs.removeValue(forKey: id)
         pairTimeouts[id]?.cancel()
         pairTimeouts.removeValue(forKey: id)
+    }
+
+    // MARK: - Link notifications (instant state instead of polling)
+
+    @objc private func deviceDidConnect(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
+        guard let id = device.addressString, known[id] != nil else { return }
+        watchDisconnect(of: device, id: id)
+        let wasTaking: Bool = {
+            if case .taking = peripherals.first(where: { $0.id == id })?.state { return true }
+            return false
+        }()
+        if wasTaking { append("\(device.name ?? id): link up \(elapsed(id))") }
+        setState(.connected, for: id)
+    }
+
+    @objc private func deviceDidDisconnect(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
+        guard let id = device.addressString else { return }
+        disconnectNotifications[id]?.unregister()
+        disconnectNotifications[id] = nil
+        // A disconnect during a take is part of the dance (unbond, re-pair); only
+        // reflect it when nothing is in flight.
+        if let p = peripherals.first(where: { $0.id == id }), !p.state.isBusy {
+            setState(.disconnected, for: id)
+        }
+    }
+
+    private func watchDisconnect(of device: IOBluetoothDevice, id: String) {
+        DispatchQueue.main.async {
+            guard self.disconnectNotifications[id] == nil else { return }
+            self.disconnectNotifications[id] = device.register(
+                forDisconnectNotification: self, selector: #selector(self.deviceDidDisconnect(_:device:)))
+        }
     }
 
     // MARK: - Helpers
@@ -336,11 +379,16 @@ final class BluetoothController: NSObject, ObservableObject {
         }
     }
 
+    private func elapsed(_ id: String) -> String {
+        guard let start = opStarted[id] else { return "" }
+        return String(format: "(%.2fs)", Date().timeIntervalSince(start))
+    }
+
     private func append(_ line: String) {
         let stamp = DateFormatter.logTime.string(from: Date())
         DispatchQueue.main.async {
             self.log.append("\(stamp)  \(line)")
-            if self.log.count > 200 { self.log.removeFirst(self.log.count - 200) }
+            if self.log.count > 300 { self.log.removeFirst(self.log.count - 300) }
         }
     }
 
@@ -350,10 +398,7 @@ final class BluetoothController: NSObject, ObservableObject {
 // MARK: - IOBluetoothDevicePair delegate (informal protocol)
 
 extension BluetoothController {
-    @objc func devicePairingStarted(_ sender: Any!) {
-        guard let pair = sender as? IOBluetoothDevicePair, let d = pair.device() else { return }
-        append("\(d.name ?? "?"): pairing in progress")
-    }
+    @objc func devicePairingStarted(_ sender: Any!) {}
 
     @objc func devicePairingConnecting(_ sender: Any!) {
         guard let pair = sender as? IOBluetoothDevicePair, let d = pair.device() else { return }
@@ -380,22 +425,34 @@ extension BluetoothController {
             self.clearPending(id)
         }
         if error == kIOReturnSuccess {
-            append("\(name): pairing complete")
-            // The HID service can take a second or two to come up; refresh catches it.
-            queue.asyncAfter(deadline: .now() + 1.5) {
-                if let fresh = IOBluetoothDevice(addressString: id), !fresh.isConnected() {
-                    _ = fresh.openConnection()
+            append("\(name): paired \(elapsed(id))")
+            queue.async {
+                guard let fresh = IOBluetoothDevice(addressString: id) else { return }
+                self.watchDisconnect(of: fresh, id: id)
+                if fresh.isConnected() {
+                    self.append("\(name): connected \(self.elapsed(id))")
+                    self.setState(.connected, for: id)
+                    return
                 }
-                self.setState(IOBluetoothDevice(addressString: id)?.isConnected() == true ? .connected : .disconnected, for: id)
-                self.refresh()
+                // Link not up yet: the connect notification will flip the state.
+                // If it never comes, nudge once after a grace period.
+                self.setState(.taking("Waiting for link…"), for: id)
+                self.queue.asyncAfter(deadline: .now() + Tuning.postPairGrace) {
+                    guard let again = IOBluetoothDevice(addressString: id) else { return }
+                    if again.isConnected() { self.setState(.connected, for: id); return }
+                    let r = again.openConnection()
+                    let ok = again.isConnected()
+                    self.append("\(name): post-pair openConnection \(ok ? "ok" : "failed (\(r))") \(self.elapsed(id))")
+                    self.setState(ok ? .connected : .failed("paired but no link"), for: id)
+                }
             }
         } else if error == 4 {
             // HCI "page timeout": the device never answered. Magic devices ignore
             // other hosts while connected, so it is almost certainly on the other Mac.
-            append("\(name): no answer (error 4). It is probably connected to your other Mac; set that Mac up so Take can ask it to let go.")
+            append("\(name): no answer (error 4) \(elapsed(id)). It is probably connected to your other Mac.")
             setState(.failed("held by another Mac?"), for: id)
         } else {
-            append("\(name): pairing failed (\(error))")
+            append("\(name): pairing failed (\(error)) \(elapsed(id))")
             setState(.failed("pairing \(error)"), for: id)
         }
     }
