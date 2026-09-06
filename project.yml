@@ -21,13 +21,18 @@ targets:
     platform: macOS
     sources:
       - path: MagicHandoff
+        excludes:
+          - Resources
+      - path: MagicHandoff/Resources/AppIcon.icns
+        buildPhase: resources
     info:
       path: MagicHandoff/Info.plist
       properties:
         CFBundleDisplayName: Magic Handoff
         CFBundleName: Magic Handoff
         CFBundleShortVersionString: "0.0.1"
-        CFBundleVersion: "2"
+        CFBundleVersion: "3"
+        CFBundleIconFile: AppIcon
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
         NSBluetoothAlwaysUsageDescription: "Magic Handoff uses Bluetooth to move your Magic Keyboard, Trackpad and Mouse between this Mac and your other Mac."

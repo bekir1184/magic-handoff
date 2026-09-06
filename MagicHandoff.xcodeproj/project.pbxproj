@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C270C603176F934C2E500FEE /* SettingsView.swift */; };
+		40448AD41E142D2883D8D6A7 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 7226F2ECBB07CC0C148EBCEB /* AppIcon.icns */; };
 		67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6212514326A7093BE1917A86 /* Peripheral.swift */; };
 		7C5E9149429ED536F1BB9CC5 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8789E2642F3F88574784AA86 /* SetupView.swift */; };
 		88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249E0137FAA0775B337B47D4 /* PeerService.swift */; };
@@ -26,6 +27,7 @@
 		3A13DDF06F44B1278A70A1EB /* MagicHandoff.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MagicHandoff.entitlements; sourceTree = "<group>"; };
 		429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffCoordinator.swift; sourceTree = "<group>"; };
 		6212514326A7093BE1917A86 /* Peripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Peripheral.swift; sourceTree = "<group>"; };
+		7226F2ECBB07CC0C148EBCEB /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		8789E2642F3F88574784AA86 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		8C6A3D412D96C660A6243333 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicHandoffApp.swift; sourceTree = "<group>"; };
@@ -36,6 +38,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		05A3342B800E47995862BAFB /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				7226F2ECBB07CC0C148EBCEB /* AppIcon.icns */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		695676E4A9097318C2B91C30 /* MagicHandoff */ = {
 			isa = PBXGroup;
 			children = (
@@ -51,6 +61,7 @@
 				C270C603176F934C2E500FEE /* SettingsView.swift */,
 				8789E2642F3F88574784AA86 /* SetupView.swift */,
 				AFF173F385ACF42B7932F955 /* SleepMonitor.swift */,
+				05A3342B800E47995862BAFB /* Resources */,
 			);
 			path = MagicHandoff;
 			sourceTree = "<group>";
@@ -79,6 +90,7 @@
 			buildConfigurationList = C434D882DF3B2346C2D2F554 /* Build configuration list for PBXNativeTarget "MagicHandoff" */;
 			buildPhases = (
 				2E99525303DFDDE9DF07298A /* Sources */,
+				E790FAFF0D3A283B93875CA8 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -124,6 +136,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E790FAFF0D3A283B93875CA8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				40448AD41E142D2883D8D6A7 /* AppIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2E99525303DFDDE9DF07298A /* Sources */ = {
