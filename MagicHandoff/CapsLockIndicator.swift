@@ -111,16 +111,59 @@ final class CapsLockIndicator {
             return product.contains("Magic Keyboard")
         } ?? set.first
         guard let device else { return nil }
+        ensureAccess()
         let r = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         guard r == kIOReturnSuccess else {
             if !reportedFailure {
                 reportedFailure = true
-                logger?("Caps Lock LED: could not open keyboard (\(r)). Grant Input Monitoring in System Settings → Privacy & Security if prompted.")
+                logger?("Caps Lock LED: could not open keyboard (\(Self.hex(r))). " + Self.accessHint())
             }
             return nil
         }
         cachedDevice = device
         return device
+    }
+
+    /// Opening a keyboard needs the Input Monitoring permission. Ask for it the
+    /// first time; macOS applies a fresh grant only after the app is relaunched.
+    private func ensureAccess() {
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
+            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        }
+    }
+
+    private static func accessHint() -> String {
+        switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+        case kIOHIDAccessTypeGranted:
+            return "Input Monitoring is granted; if it was granted just now, quit and reopen Magic Handoff."
+        case kIOHIDAccessTypeDenied:
+            return "Turn on Magic Handoff under System Settings → Privacy & Security → Input Monitoring, then quit and reopen the app."
+        default:
+            return "Allow Input Monitoring when macOS asks, then quit and reopen the app."
+        }
+    }
+
+    private static func hex(_ r: IOReturn) -> String { String(format: "0x%08x", UInt32(bitPattern: r)) }
+
+    /// Step-by-step check written to the log, for the Test button.
+    func diagnose(completion: @escaping (Bool) -> Void) {
+        queue.async {
+            let access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+            let accessText = access == kIOHIDAccessTypeGranted ? "granted" : access == kIOHIDAccessTypeDenied ? "denied" : "not determined"
+            self.logger?("Caps Lock LED test: Input Monitoring \(accessText)")
+            self.reportedFailure = false
+            self.cachedDevice = nil
+            guard let device = self.keyboardDevice() else {
+                self.logger?("Caps Lock LED test: no Bluetooth Magic Keyboard could be opened. " + Self.accessHint())
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "?"
+            var report: [UInt8] = [0x02]
+            let r = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 1, &report, report.count)
+            self.logger?("Caps Lock LED test: \(name) opened, LED on → \(Self.hex(r))")
+            DispatchQueue.main.async { completion(r == kIOReturnSuccess) }
+        }
     }
 
     /// Forgets the opened device, e.g. after the keyboard disconnects.
@@ -140,7 +183,7 @@ final class CapsLockIndicator {
             cachedDevice = nil
             if !reportedFailure {
                 reportedFailure = true
-                logger?("Caps Lock LED: write failed (\(r))")
+                logger?("Caps Lock LED: write failed (\(Self.hex(r)))")
             }
         }
     }

@@ -84,13 +84,16 @@ struct SettingsView: View {
                        isOn: $settings.handoffOnSleep)
                 Toggle("Show progress on the keyboard's Caps Lock light", isOn: $settings.capsLockAnimations)
                 HStack {
-                    Text("Pulses while the other devices are still connecting; bounces once everything is here.")
+                    Text("Pulses while the other devices are still connecting; bounces once everything is here. Needs Input Monitoring; the result of Test is written to the log in the menu.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("Test") {
-                        handoff.capsLock.startLoading()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { handoff.capsLock.playConnected() }
+                        handoff.capsLock.diagnose { ok in
+                            guard ok else { return }
+                            handoff.capsLock.startLoading()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { handoff.capsLock.playConnected() }
+                        }
                     }
                     .disabled(!settings.capsLockAnimations)
                 }
