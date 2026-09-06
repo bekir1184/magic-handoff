@@ -9,10 +9,13 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    # Prototype: ad-hoc signing. Set a team / Developer ID for distribution.
+    # Signed with the Apple Development certificate so the app keeps one stable
+    # identity across builds (TCC grants such as Input Monitoring stick to it).
+    # Ad-hoc signing changes identity every build. Notarised Developer ID later.
     CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: "-"
-    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_IDENTITY: "Apple Development: Bekir Ersever (CRU6TPH463)"
+    DEVELOPMENT_TEAM: 7NGN8D3PYY
+    PROVISIONING_PROFILE_SPECIFIER: ""
     MACOSX_DEPLOYMENT_TARGET: "14.0"
 
 targets:
@@ -31,7 +34,7 @@ targets:
         CFBundleDisplayName: Magic Handoff
         CFBundleName: Magic Handoff
         CFBundleShortVersionString: "0.0.1"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
         CFBundleIconFile: AppIcon
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
