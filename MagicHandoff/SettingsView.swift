@@ -87,7 +87,8 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
-                    Text("Preview on the keyboard:")
+                    LEDDot(indicator: handoff.capsLock)
+                    Text("Preview (dot mirrors the keyboard LED):")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -130,5 +131,19 @@ struct SettingsView: View {
         case .online: return "Online · \(handoff.peerDevices.filter { $0.connected == true }.count) device(s) connected there"
         case .codeMismatch: return "That Mac uses a different pairing code"
         }
+    }
+}
+
+
+/// On-screen twin of the Caps Lock LED, to compare timing against the keyboard.
+private struct LEDDot: View {
+    @ObservedObject var indicator: CapsLockIndicator
+
+    var body: some View {
+        Circle()
+            .fill(indicator.ledOn ? Color.green : Color.gray.opacity(0.35))
+            .frame(width: 14, height: 14)
+            .shadow(color: indicator.ledOn ? Color.green.opacity(0.8) : .clear, radius: 6)
+            .animation(nil, value: indicator.ledOn)
     }
 }

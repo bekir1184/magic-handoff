@@ -1,6 +1,7 @@
 import Foundation
 import IOKit.hid
 import CoreGraphics
+import Combine
 
 /// Uses the Magic Keyboard's Caps Lock LED as a status light.
 ///
@@ -16,7 +17,10 @@ import CoreGraphics
 /// report 1, LED usage page bit 2). Writing the report lights the LED without
 /// changing the Caps Lock state; when the animation ends the LED is put back to
 /// whatever Caps Lock really is.
-final class CapsLockIndicator {
+final class CapsLockIndicator: ObservableObject {
+    /// Mirrors what the keyboard LED was last told to do, for on-screen previews.
+    @Published private(set) var ledOn = false
+
     private let queue = DispatchQueue(label: "com.bekirersever.magichandoff.capslock")
     private var generation = 0          // bumping it cancels the running animation
     private var loadingActive = false
@@ -185,6 +189,7 @@ final class CapsLockIndicator {
     }
 
     private func setLED(_ on: Bool) {
+        DispatchQueue.main.async { self.ledOn = on }
         guard let device = keyboardDevice() else { return }
         // Numbered report: the buffer carries the report ID itself, then the LED
         // bits (bit 1 = Caps Lock). Without the ID byte the keyboard ignores it.
