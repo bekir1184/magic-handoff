@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct MenuContentView: View {
+    static let version: String = {
+        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return "\(v) (\(b))"
+    }()
     @EnvironmentObject private var bluetooth: BluetoothController
     @EnvironmentObject private var handoff: HandoffCoordinator
     @EnvironmentObject private var settings: AppSettings
@@ -84,6 +89,7 @@ struct MenuContentView: View {
     private var header: some View {
         HStack {
             Text("Magic Handoff").font(.headline)
+            Text("v\(Self.version)").font(.caption).foregroundStyle(.secondary)
             Spacer()
             if handoff.busy { ProgressView().controlSize(.small) }
             Button {

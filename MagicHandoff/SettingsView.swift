@@ -9,6 +9,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("This Mac") {
+                LabeledContent("Version", value: MenuContentView.version)
                 LabeledContent("Name", value: settings.thisMacName)
                 LabeledContent("ID", value: String(settings.thisMacID.prefix(8)))
                 LabeledContent("Listening", value: peers.listening ? "Yes" : "No – set a pairing code")
