@@ -25,7 +25,7 @@ final class CapsLockIndicator {
 
     // MARK: - Public
 
-    /// Searching: steady 2 Hz blink (250 ms on / 250 ms off) until `stopLoading()` or `playConnected()`.
+    /// Searching: calm 1 Hz blink (500 ms on / 500 ms off) until `stopLoading()` or `playConnected()`.
     func startLoading() {
         guard enabled else { return }
         queue.async {
@@ -76,7 +76,7 @@ final class CapsLockIndicator {
 
     private func loop(generation g: Int) {
         guard g == generation, loadingActive else { return }
-        play([(true, 250), (false, 250)], generation: g) {
+        play([(true, 500), (false, 500)], generation: g) {
             self.loop(generation: g)
         }
     }
