@@ -50,6 +50,8 @@ final class BluetoothController: NSObject, ObservableObject {
         didSet { UserDefaults.standard.set(Array(ignoredByUs), forKey: Self.ignoredKey) }
     }
     private static let ignoredKey = "ignoredPeripherals"
+    /// When each ignore was set, to keep housekeeping from lifting a fresh one.
+    private var ignoredAt: [String: Date] = [:]
 
     private enum Tuning {
         /// `-remove` completes asynchronously inside bluetoothd; pairing right
@@ -143,8 +145,11 @@ final class BluetoothController: NSObject, ObservableObject {
         next.sort { $0.name < $1.name }
         if next != peripherals { peripherals = next }
 
-        // Stale bookkeeping: if something we ignored is connected here anyway, lift it.
+        // Housekeeping for relaunches: something we ignored long ago is connected
+        // here anyway, so lift it. A fresh ignore is left alone — right after a
+        // release the device still reads as connected for a moment.
         for s in snapshot where s.connected && ignoredByUs.contains(s.id) {
+            if let at = ignoredAt[s.id], Date().timeIntervalSince(at) < 30 { continue }
             if let d = IOBluetoothDevice(addressString: s.id) { queue.async { self.unignore(d, id: s.id) } }
         }
     }
@@ -251,13 +256,20 @@ final class BluetoothController: NSObject, ObservableObject {
     /// its own. The bond is untouched. Runs on the Bluetooth queue.
     private func ignore(_ device: IOBluetoothDevice, id: String) {
         IOBluetoothIgnoreHIDDevice(Self.ref(device))
-        DispatchQueue.main.async { self.ignoredByUs.insert(id) }
+        DispatchQueue.main.async { self.ignoredByUs.insert(id); self.ignoredAt[id] = Date() }
     }
 
     /// Runs on the Bluetooth queue.
     private func unignore(_ device: IOBluetoothDevice, id: String) {
         IOBluetoothRemoveIgnoredHIDDevice(Self.ref(device))
-        DispatchQueue.main.async { self.ignoredByUs.remove(id) }
+        DispatchQueue.main.async { self.ignoredByUs.remove(id); self.ignoredAt[id] = nil }
+    }
+
+    /// Runs on the Bluetooth queue.
+    private func liftIgnoreIfNeeded(_ device: IOBluetoothDevice, id: String) {
+        guard ignoredByUs.contains(id) else { return }
+        unignore(device, id: id)
+        append("\(device.name ?? id): no longer ignored")
     }
 
     private func unignoreAll() {
@@ -336,7 +348,12 @@ final class BluetoothController: NSObject, ObservableObject {
 
     // MARK: - Take
 
-    func take(_ id: String, completion: ((Bool) -> Void)? = nil) {
+    /// - Parameter liftIgnoreFirst: normally the device stays on the ignore list
+    ///   while we pair with it, so its own reconnect attempts are refused silently
+    ///   instead of raising the "Connection Request" dialog; the ignore is lifted
+    ///   once pairing succeeds. Pass `true` on a retry, in case the ignore was
+    ///   what got in the way.
+    func take(_ id: String, liftIgnoreFirst: Bool = false, completion: ((Bool) -> Void)? = nil) {
         if let completion { addWaiter(id, .take, completion) }
         opStarted[id] = Date()
         releasedOnPurpose[id] = nil
@@ -350,8 +367,12 @@ final class BluetoothController: NSObject, ObservableObject {
             let name = device.name ?? id
 
             if self.ignoredByUs.contains(id) {
-                self.unignore(device, id: id)
-                self.append("\(name): no longer ignored")
+                if liftIgnoreFirst {
+                    self.unignore(device, id: id)
+                    self.append("\(name): no longer ignored")
+                } else {
+                    self.append("\(name): pairing while still refusing its own reconnects")
+                }
             }
 
             if device.isConnected() {
@@ -377,6 +398,7 @@ final class BluetoothController: NSObject, ObservableObject {
     private func connectBonded(_ device: IOBluetoothDevice, id: String, name: String, attemptsLeft: Int) {
         // The device may have connected to us on its own in the meantime.
         if device.isConnected() {
+            self.liftIgnoreIfNeeded(device, id: id)
             self.append("\(name): connected \(self.elapsed(id))")
             self.watchDisconnect(of: device, id: id)
             self.setState(.connected, for: id); return
@@ -384,6 +406,7 @@ final class BluetoothController: NSObject, ObservableObject {
         // Short page timeout: a dead bond should cost a few seconds, not 20.
         let r = device.openConnection(nil, withPageTimeout: Tuning.probePageTimeout, authenticationRequired: true)
         if device.isConnected() {
+            self.liftIgnoreIfNeeded(device, id: id)
             self.append("\(name): connected via openConnection \(self.elapsed(id))")
             self.watchDisconnect(of: device, id: id)
             self.setState(.connected, for: id); return
@@ -572,6 +595,8 @@ extension BluetoothController {
             append("\(name): paired \(elapsed(id))")
             queue.async {
                 guard let fresh = IOBluetoothDevice(addressString: id) else { return }
+                // Bonded again: from now on its reconnects are welcome.
+                self.liftIgnoreIfNeeded(fresh, id: id)
                 self.watchDisconnect(of: fresh, id: id)
                 if fresh.isConnected() {
                     self.append("\(name): connected \(self.elapsed(id))")

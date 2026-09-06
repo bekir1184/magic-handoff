@@ -195,7 +195,7 @@ final class HandoffCoordinator: ObservableObject {
             }
             self.bluetooth.appendLog("Retrying \(failed.count) device(s) in \(Self.retryDelay)s")
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelay) {
-                self.takeAll(failed) { retry in
+                self.takeAll(failed, liftIgnoreFirst: true) { retry in
                     self.busy = false
                     let stillFailed = retry.filter { !$0.value }.count
                     if stillFailed == 0 {
@@ -279,11 +279,11 @@ final class HandoffCoordinator: ObservableObject {
     }
 
     /// Starts taking every device at once; pairing attempts run concurrently.
-    private func takeAll(_ ids: [String], completion: @escaping ([String: Bool]) -> Void) {
+    private func takeAll(_ ids: [String], liftIgnoreFirst: Bool = false, completion: @escaping ([String: Bool]) -> Void) {
         guard !ids.isEmpty else { completion([:]); return }
         var results: [String: Bool] = [:]
         for id in ids {
-            bluetooth.take(id) { ok in
+            bluetooth.take(id, liftIgnoreFirst: liftIgnoreFirst) { ok in
                 results[id] = ok
                 if results.count == ids.count { completion(results) }
             }
