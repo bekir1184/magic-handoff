@@ -70,6 +70,8 @@ final class BluetoothController: NSObject, ObservableObject {
         /// up on the bond and pairing from scratch.
         static let connectAttempts = 4
         static let connectRetryGap: TimeInterval = 0.8
+        /// Let bluetoothd finish deleting the record before the ignore is set on it.
+        static let ignoreAfterRemoveDelay: TimeInterval = 0.3
         /// HCI page timeout for the bonded-connect probe, in 0.625 ms slots (≈5 s).
         static let probePageTimeout: BluetoothHCIPageTimeout = 8000
         static let refreshInterval: TimeInterval = 2
@@ -323,21 +325,27 @@ final class BluetoothController: NSObject, ObservableObject {
 
     /// Classic release: forget the device on this Mac. Runs on the Bluetooth queue.
     ///
-    /// The device is put on the ignore list first: once unbonded it will try to
-    /// reconnect to us, and without the ignore that shows macOS's "Connection
-    /// Request" dialog and blocks the other Mac's pairing. Ignored, the attempt
-    /// is refused silently and the device falls back to pairing mode.
+    /// Once unbonded the device tries to reconnect to us; without an ignore that
+    /// raises macOS's "Connection Request" dialog and blocks the other Mac's
+    /// pairing. `-remove` deletes the whole device record, which appears to take
+    /// the ignore flag with it, so the ignore is applied *after* the removal has
+    /// had a moment to land in bluetoothd.
     private func removeBond(_ device: IOBluetoothDevice, id: String, name: String) {
         DispatchQueue.main.async { self.releasedOnPurpose[id] = nil }
-        ignore(device, id: id)
         if device.responds(to: Selector(("remove"))) {
             device.perform(Selector(("remove")))
-            append("\(name): ignored + bond removed \(elapsed(id))")
+            append("\(name): bond removed \(elapsed(id)); ignoring its reconnects")
+            queue.asyncAfter(deadline: .now() + Tuning.ignoreAfterRemoveDelay) { [weak self] in
+                guard let self, let again = IOBluetoothDevice(addressString: id) else { return }
+                self.ignore(again, id: id)
+                self.append("\(name): ignored (paired=\(again.isPaired()))")
+            }
             setState(.disconnected, for: id)
         } else {
+            ignore(device, id: id)
             let r = device.closeConnection()
             if r == kIOReturnSuccess {
-                append("\(name): -remove unavailable, session closed with closeConnection \(elapsed(id))")
+                append("\(name): -remove unavailable, ignored + session closed \(elapsed(id))")
                 setState(.disconnected, for: id)
             } else {
                 append("\(name): closeConnection failed (\(r))")
