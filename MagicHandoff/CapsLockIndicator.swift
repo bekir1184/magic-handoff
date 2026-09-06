@@ -52,7 +52,7 @@ final class CapsLockIndicator: ObservableObject {
 
     /// Searching: calm 1 Hz blink (500 ms on / 500 ms off) until `stopLoading()` or `playConnected()`.
     func startLoading() {
-        guard enabled else { return }
+        guard enabled, Self.inputMonitoringGranted else { return }
         queue.async {
             guard !self.loadingActive else { return }
             self.loadingActive = true
@@ -77,7 +77,7 @@ final class CapsLockIndicator: ObservableObject {
     /// then one long solid flash (700 ms), then off and back to the real Caps
     /// Lock state.
     func playConnected() {
-        guard enabled else { return }
+        guard enabled, Self.inputMonitoringGranted else { return }
         queue.async {
             self.loadingActive = false
             self.generation += 1
@@ -96,7 +96,7 @@ final class CapsLockIndicator: ObservableObject {
     /// Stop any animation and leave the LED lit — used right before the keyboard
     /// is handed away, so it stays on for as long as the firmware keeps it.
     func holdOn() {
-        guard enabled else { return }
+        guard enabled, Self.inputMonitoringGranted else { return }
         queue.async {
             self.loadingActive = false
             self.generation += 1
@@ -106,7 +106,7 @@ final class CapsLockIndicator: ObservableObject {
 
     /// One short blink, e.g. when handing the keyboard away.
     func playGoodbye() {
-        guard enabled else { return }
+        guard enabled, Self.inputMonitoringGranted else { return }
         queue.async {
             self.generation += 1
             let g = self.generation
@@ -294,7 +294,8 @@ final class CapsLockIndicator: ObservableObject {
             return product.contains("Magic Keyboard")
         } ?? set.first
         guard let device else { return nil }
-        ensureAccess()
+        // No implicit permission request here: the prompt only comes from the
+        // Allow button in Settings, after the user turned the feature on.
         let r = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         guard r == kIOReturnSuccess else {
             if !reportedFailure {
@@ -318,12 +319,6 @@ final class CapsLockIndicator: ObservableObject {
                 reportedFailure = true
                 logger?("Caps Lock LED: write failed (\(Self.hex(r)))")
             }
-        }
-    }
-
-    private func ensureAccess() {
-        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
-            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
         }
     }
 
@@ -368,6 +363,7 @@ final class CapsLockIndicator: ObservableObject {
     // MARK: - Diagnostics (Settings → Test)
 
     func diagnose(completion: @escaping (Bool) -> Void) {
+        guard enabled else { completion(false); return }
         queue.async {
             self.cachedService = nil
             self.cachedDevice = nil

@@ -60,6 +60,11 @@ final class PeerService: ObservableObject {
     @Published private(set) var peers: [Peer] = []
     @Published private(set) var listening = false
 
+    enum LocalNetworkState { case unknown, allowed, denied }
+    /// Best available read on the Local Network permission (macOS offers no direct query).
+    @Published private(set) var localNetwork: LocalNetworkState = .unknown
+    private(set) var started = false
+
     /// Called on the main queue for every incoming request; must call `reply` once.
     var requestHandler: ((Message, @escaping (Message) -> Void) -> Void)?
     /// Diagnostic lines, delivered on the main queue.
@@ -74,15 +79,23 @@ final class PeerService: ObservableObject {
 
     init(settings: AppSettings) {
         self.settings = settings
-        startBrowser()
-        startListener()
         // Re-key the listener whenever the pairing code changes.
         settings.$pairingCode
             .removeDuplicates()
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in self?.startListener() }
+            .sink { [weak self] _ in if self?.started == true { self?.startListener() } }
             .store(in: &cancellables)
+    }
+
+    /// Starts advertising and browsing. The first Bonjour activity is what makes
+    /// macOS ask for Local Network access, so this runs from the setup screen
+    /// (or at launch once setup is done).
+    func start() {
+        guard !started else { return }
+        started = true
+        startBrowser()
+        startListener()
     }
 
     // MARK: TLS with pre-shared key
@@ -192,9 +205,21 @@ final class PeerService: ObservableObject {
         browser?.cancel()
         let b = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: NWParameters())
         b.stateUpdateHandler = { [weak self] state in
-            if case .failed(let error) = state {
-                self?.log("Browser failed: \(error.localizedDescription); retrying")
-                self?.queue.asyncAfter(deadline: .now() + 5) { self?.startBrowser() }
+            guard let self else { return }
+            switch state {
+            case .ready:
+                DispatchQueue.main.async { self.localNetwork = .allowed }
+            case .waiting(let error):
+                // kDNSServiceErr_PolicyDenied (-65570): Local Network access refused.
+                if case .dns(let code) = error, code == -65570 {
+                    DispatchQueue.main.async { self.localNetwork = .denied }
+                    self.log("Local Network access is off; the other Mac cannot be found")
+                }
+            case .failed(let error):
+                self.log("Browser failed: \(error.localizedDescription); retrying")
+                self.queue.asyncAfter(deadline: .now() + 5) { self.startBrowser() }
+            default:
+                break
             }
         }
         b.browseResultsChangedHandler = { [weak self] results, _ in self?.updatePeers(results) }
@@ -214,6 +239,7 @@ final class PeerService: ObservableObject {
         found.sort { $0.name < $1.name }
         DispatchQueue.main.async {
             if found != self.peers { self.peers = found }
+            if !found.isEmpty { self.localNetwork = .allowed }
         }
     }
 

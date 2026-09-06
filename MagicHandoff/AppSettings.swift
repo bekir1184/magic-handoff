@@ -23,6 +23,10 @@ final class AppSettings: ObservableObject {
     @Published var keepBonds: Bool { didSet { defaults.set(keepBonds, forKey: "keepBonds") } }
     /// Animate the keyboard's Caps Lock LED during and after a handoff.
     @Published var capsLockAnimations: Bool { didSet { defaults.set(capsLockAnimations, forKey: "capsLockAnimations") } }
+    /// Where the guided setup was left, so a relaunch mid-setup resumes there.
+    @Published var onboardingStep: Int { didSet { defaults.set(onboardingStep, forKey: "onboardingStep") } }
+    /// The guided setup (permissions + other Mac) has been completed once.
+    @Published var onboardingCompleted: Bool { didSet { defaults.set(onboardingCompleted, forKey: "onboardingCompleted") } }
     /// Which global hotkey stands for this Mac: 1 = ⌘⇧1, 2 = ⌘⇧2. The other Mac takes the other number.
     @Published var thisMacHotkey: Int { didSet { defaults.set(thisMacHotkey, forKey: "thisMacHotkey") } }
     /// How the Caps Lock LED is driven; see CapsLockIndicator.Method.
@@ -40,9 +44,11 @@ final class AppSettings: ObservableObject {
         handoffOnSleep = defaults.object(forKey: "handoffOnSleep") as? Bool ?? true
         takeBackOnWake = defaults.object(forKey: "takeBackOnWake") as? Bool ?? true
         keepBonds = defaults.object(forKey: "keepBonds") as? Bool ?? false
-        capsLockAnimations = defaults.object(forKey: "capsLockAnimations") as? Bool ?? true
+        capsLockAnimations = defaults.object(forKey: "capsLockAnimations") as? Bool ?? false
         capsLockLEDMethod = defaults.string(forKey: "capsLockLEDMethod") ?? "rawInhibit"
         thisMacHotkey = defaults.object(forKey: "thisMacHotkey") as? Int ?? 1
+        onboardingCompleted = defaults.bool(forKey: "onboardingCompleted")
+        onboardingStep = defaults.integer(forKey: "onboardingStep")
         if let id = defaults.string(forKey: "thisMacID") {
             thisMacID = id
         } else {

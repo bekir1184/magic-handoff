@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		028E250F8DE9AD04B81F07F6 /* MenuIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A807C02F4C1204ACB654FAB3 /* MenuIcon.swift */; };
 		08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C270C603176F934C2E500FEE /* SettingsView.swift */; };
+		1179067C32848324364D6443 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B5A20D370E9E9F7EC5D8B93 /* OnboardingView.swift */; };
+		26D41199668DB9AD9F3ADAC8 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF873B41268D49BE6AC8218 /* AppContainer.swift */; };
 		40448AD41E142D2883D8D6A7 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 7226F2ECBB07CC0C148EBCEB /* AppIcon.icns */; };
 		67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6212514326A7093BE1917A86 /* Peripheral.swift */; };
 		7C5E9149429ED536F1BB9CC5 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8789E2642F3F88574784AA86 /* SetupView.swift */; };
@@ -34,11 +36,13 @@
 		7226F2ECBB07CC0C148EBCEB /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		8789E2642F3F88574784AA86 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		8C6A3D412D96C660A6243333 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9B5A20D370E9E9F7EC5D8B93 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicHandoffApp.swift; sourceTree = "<group>"; };
 		A807C02F4C1204ACB654FAB3 /* MenuIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuIcon.swift; sourceTree = "<group>"; };
 		AFF173F385ACF42B7932F955 /* SleepMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMonitor.swift; sourceTree = "<group>"; };
 		BEF65550F4F0F11B3B2F5CE7 /* MenuContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuContentView.swift; sourceTree = "<group>"; };
 		C270C603176F934C2E500FEE /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		CFF873B41268D49BE6AC8218 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
 		D93ADFBCBA0439005D0BE119 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		F36E7DA6257A2BA2018AC97A /* BluetoothController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -55,6 +59,7 @@
 		695676E4A9097318C2B91C30 /* MagicHandoff */ = {
 			isa = PBXGroup;
 			children = (
+				CFF873B41268D49BE6AC8218 /* AppContainer.swift */,
 				099CF09DE5923FE879A5BA30 /* AppSettings.swift */,
 				F36E7DA6257A2BA2018AC97A /* BluetoothController.swift */,
 				68BCA9A4A8E5D9A5FCE3A289 /* CapsLockIndicator.swift */,
@@ -65,6 +70,7 @@
 				A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */,
 				BEF65550F4F0F11B3B2F5CE7 /* MenuContentView.swift */,
 				A807C02F4C1204ACB654FAB3 /* MenuIcon.swift */,
+				9B5A20D370E9E9F7EC5D8B93 /* OnboardingView.swift */,
 				249E0137FAA0775B337B47D4 /* PeerService.swift */,
 				6212514326A7093BE1917A86 /* Peripheral.swift */,
 				C270C603176F934C2E500FEE /* SettingsView.swift */,
@@ -162,6 +168,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				26D41199668DB9AD9F3ADAC8 /* AppContainer.swift in Sources */,
 				91B66D1D358CE1A884615E4E /* AppSettings.swift in Sources */,
 				C6EA3AF35F6DF7726E0BC925 /* BluetoothController.swift in Sources */,
 				9EABB1FFA81007271B72EE2C /* CapsLockIndicator.swift in Sources */,
@@ -170,6 +177,7 @@
 				EBE483ADC846AF55BE31A833 /* MagicHandoffApp.swift in Sources */,
 				EF03DA061C6546C75EE07C3A /* MenuContentView.swift in Sources */,
 				028E250F8DE9AD04B81F07F6 /* MenuIcon.swift in Sources */,
+				1179067C32848324364D6443 /* OnboardingView.swift in Sources */,
 				88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */,
 				67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */,
 				08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */,

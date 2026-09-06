@@ -19,7 +19,8 @@ struct SetupView: View {
                 step(2, "Enter this Mac's code there:")
                 HStack {
                     Text(AppSettings.format(settings.pairingCode))
-                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                        .font(.title3.weight(.semibold))
+                        .monospacedDigit()
                         .textSelection(.enabled)
                     Spacer()
                     Button(copied ? "Copied" : "Copy") {
@@ -39,7 +40,6 @@ struct SetupView: View {
                     .foregroundStyle(.secondary)
                 HStack {
                     TextField("XXXX-XXXX", text: $otherCode)
-                        .font(.system(.body, design: .monospaced))
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(useTypedCode)
                     Button("Use", action: useTypedCode)

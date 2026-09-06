@@ -1,27 +1,24 @@
 import SwiftUI
+import AppKit
 
 @main
 struct MagicHandoffApp: App {
-    @StateObject private var settings: AppSettings
-    @StateObject private var bluetooth: BluetoothController
-    @StateObject private var handoff: HandoffCoordinator
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    private let container = AppContainer.shared
+    @ObservedObject private var bluetooth: BluetoothController
 
     init() {
-        let settings = AppSettings.shared
-        let bluetooth = BluetoothController()
-        let handoff = HandoffCoordinator(bluetooth: bluetooth, settings: settings)
-        _settings = StateObject(wrappedValue: settings)
-        _bluetooth = StateObject(wrappedValue: bluetooth)
-        _handoff = StateObject(wrappedValue: handoff)
+        bluetooth = AppContainer.shared.bluetooth
     }
 
     var body: some Scene {
         MenuBarExtra {
             MenuContentView()
-                .environmentObject(bluetooth)
-                .environmentObject(handoff)
-                .environmentObject(settings)
-                .environmentObject(handoff.peers)
+                .environmentObject(container.bluetooth)
+                .environmentObject(container.handoff)
+                .environmentObject(container.settings)
+                .environmentObject(container.handoff.peers)
         } label: {
             MenuBarLabel(allConnected: bluetooth.allConnected)
         }
@@ -29,13 +26,25 @@ struct MagicHandoffApp: App {
 
         Settings {
             SettingsView()
-                .environmentObject(settings)
-                .environmentObject(handoff)
-                .environmentObject(handoff.peers)
+                .environmentObject(container.settings)
+                .environmentObject(container.handoff)
+                .environmentObject(container.handoff.peers)
+                .environmentObject(container.bluetooth)
         }
     }
 }
 
+/// Starts the services once setup is done, or shows the setup window first.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let container = AppContainer.shared
+        if container.settings.onboardingCompleted {
+            container.handoff.startServices()
+        } else {
+            OnboardingWindow.show()
+        }
+    }
+}
 
 /// The menu bar image, redrawn when the connection state or the appearance changes.
 private struct MenuBarLabel: View {

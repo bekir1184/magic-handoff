@@ -87,14 +87,25 @@ final class BluetoothController: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        // Waking CoreBluetooth makes the TCC Bluetooth prompt appear properly on
-        // first launch; IOBluetooth goes through the same coordinator.
-        central = CBCentralManager(delegate: self, queue: nil)
         loadKnown()
         ignoredByUs = Set(UserDefaults.standard.stringArray(forKey: Self.ignoredKey) ?? [])
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             self?.unignoreAll()
         }
+        bluetoothAuthorized = CBCentralManager.authorization != .denied
+    }
+
+    private(set) var started = false
+
+    /// Touches the Bluetooth stack for the first time. This is what makes macOS
+    /// ask for Bluetooth access, so it runs from the setup screen (or at launch
+    /// once setup is done), never implicitly.
+    func start() {
+        guard !started else { return }
+        started = true
+        // Waking CoreBluetooth makes the TCC Bluetooth prompt appear properly;
+        // IOBluetooth goes through the same coordinator.
+        central = CBCentralManager(delegate: self, queue: nil)
         connectNotification = IOBluetoothDevice.register(
             forConnectNotifications: self, selector: #selector(deviceDidConnect(_:device:)))
         refresh()
@@ -103,9 +114,13 @@ final class BluetoothController: NSObject, ObservableObject {
         }
     }
 
+    /// Current Bluetooth permission without triggering the prompt.
+    static var authorization: CBManagerAuthorization { CBCentralManager.authorization }
+
     // MARK: - Listing
 
     func refresh() {
+        guard started else { return }
         queue.async { [weak self] in
             guard let self else { return }
             let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []

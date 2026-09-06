@@ -74,8 +74,18 @@ final class HandoffCoordinator: ObservableObject {
             self?.handleWake()
         }
 
-        pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.ping() }
         hotkeys.onHotkey = { [weak self] number in self?.handleHotkey(number) }
+    }
+
+    /// Brings Bluetooth and the network up. Idempotent; each part can also be
+    /// started on its own from the setup screen.
+    func startServices() {
+        bluetooth.start()
+        peers.start()
+        if pingTimer == nil {
+            pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.ping() }
+            ping()
+        }
     }
 
     // MARK: - Hotkeys
@@ -179,6 +189,10 @@ final class HandoffCoordinator: ObservableObject {
             fail("\(peerName) is not reachable right now; nothing was released")
             completion?(false); return
         }
+        guard !busy else {
+            bluetooth.appendLog("Send ignored: a handoff is already running")
+            completion?(false); return
+        }
         busy = true
         lastError = nil
         let started = Date()
@@ -217,6 +231,7 @@ final class HandoffCoordinator: ObservableObject {
     func take(_ ids: [String]) {
         let infos = ids.compactMap { bluetooth.deviceInfo($0) }
         guard !infos.isEmpty else { return }
+        guard !busy else { bluetooth.appendLog("Take ignored: a handoff is already running"); return }
         busy = true
         lastError = nil
         let started = Date()
@@ -231,7 +246,10 @@ final class HandoffCoordinator: ObservableObject {
                 self.takeWithRetry(infos.map(\.id), started: started, label: "Took", freshlyReleased: peerReleased)
             }
         }
-        guard let peer = selectedPeer, peerStatus != .offline else { proceed(false); return }
+        // Always ask, even if the last ping said offline: the request itself fails
+        // fast when the peer is really unreachable, and skipping it while the
+        // peer holds the devices guarantees a failed pairing.
+        guard let peer = selectedPeer else { proceed(false); return }
         peers.request(Message(type: "release", devices: infos), to: peer, timeout: 8) { [weak self] result in
             switch result {
             case .success:
@@ -390,19 +408,34 @@ final class HandoffCoordinator: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "handedOffOnSleep") }
     }
 
+    private var wakeTakeBackPending = false
+
     private func handleWake() {
         let ids = handedOffOnSleep
-        guard settings.takeBackOnWake, !ids.isEmpty else { return }
+        guard settings.takeBackOnWake, !ids.isEmpty, !wakeTakeBackPending else { return }
         handedOffOnSleep = []
-        // Wi-Fi needs a moment after wake; the take asks the peer to release first.
-        bluetooth.appendLog("Awake: taking back \(ids.count) device(s) handed off at sleep")
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeTakeBackDelay) { [weak self] in
-            guard let self, !self.busy else { return }
-            let stillAway = ids.filter { id in self.bluetooth.peripherals.first { $0.id == id }?.state != .connected }
-            if stillAway.isEmpty { return }
-            self.take(stillAway)
+        wakeTakeBackPending = true
+        bluetooth.appendLog("Awake: taking back \(ids.count) device(s) handed off at sleep once \(peerName) is reachable")
+        // Wi-Fi comes back a few seconds after wake; the peer must be asked to
+        // release first or the pairing attempts just page a busy device.
+        let deadline = Date().addingTimeInterval(Self.wakePeerWait)
+        func attempt() {
+            guard self.wakeTakeBackPending else { return }
+            if self.peerStatus == .online || Date() > deadline {
+                self.wakeTakeBackPending = false
+                if self.peerStatus != .online {
+                    self.bluetooth.appendLog("\(self.peerName) did not come back within \(Int(Self.wakePeerWait))s; trying anyway")
+                }
+                let stillAway = ids.filter { id in self.bluetooth.peripherals.first { $0.id == id }?.state != .connected }
+                if !stillAway.isEmpty, !self.busy { self.take(stillAway) }
+                return
+            }
+            self.ping()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { attempt() }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeTakeBackDelay) { attempt() }
     }
+    private static let wakePeerWait: TimeInterval = 20
     private static let wakeTakeBackDelay: TimeInterval = 4
 
     // MARK: - Parallel helpers (main queue)
