@@ -70,6 +70,9 @@ final class BluetoothController: NSObject, ObservableObject {
         /// up on the bond and pairing from scratch.
         static let connectAttempts = 4
         static let connectRetryGap: TimeInterval = 0.8
+        /// Host-initiated connect right after pairing, before the device reconnects by itself.
+        static let postPairConnectAttempts = 3
+        static let postPairRetryGap: TimeInterval = 0.3
         /// Let bluetoothd finish deleting the record before the ignore is set on it.
         static let ignoreAfterRemoveDelay: TimeInterval = 0.3
         /// HCI page timeout for the bonded-connect probe, in 0.625 ms slots (≈5 s).
@@ -467,6 +470,35 @@ final class BluetoothController: NSObject, ObservableObject {
         }
     }
 
+    /// Runs on the Bluetooth queue.
+    private func connectAfterPairing(id: String, name: String, attemptsLeft: Int) {
+        guard let device = IOBluetoothDevice(addressString: id) else { return }
+        if device.isConnected() {
+            self.append("\(name): link up on its own \(self.elapsed(id))")
+            self.setState(.connected, for: id); return
+        }
+        let r = device.openConnection(nil, withPageTimeout: Tuning.probePageTimeout, authenticationRequired: true)
+        if device.isConnected() {
+            self.append("\(name): connected via openConnection after pairing \(self.elapsed(id))")
+            self.setState(.connected, for: id); return
+        }
+        if attemptsLeft > 1 {
+            self.append("\(name): post-pair connect failed (\(r)) \(self.elapsed(id)); retrying")
+            self.queue.asyncAfter(deadline: .now() + Tuning.postPairRetryGap) { [weak self] in
+                guard let self, self.isStillTaking(id) else { return }
+                self.connectAfterPairing(id: id, name: name, attemptsLeft: attemptsLeft - 1)
+            }
+            return
+        }
+        // Give up pushing; the connect notification still catches a device-initiated link.
+        self.append("\(name): post-pair connect failed (\(r)) \(self.elapsed(id)); waiting for the device")
+        self.setState(.taking("Waiting for link…"), for: id)
+        self.queue.asyncAfter(deadline: .now() + Tuning.postPairGrace) {
+            guard let again = IOBluetoothDevice(addressString: id) else { return }
+            self.setState(again.isConnected() ? .connected : .failed("paired but no link"), for: id)
+        }
+    }
+
     private func armPairTimeout(id: String, name: String) {
         pairTimeouts[id]?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -611,17 +643,11 @@ extension BluetoothController {
                     self.setState(.connected, for: id)
                     return
                 }
-                // Link not up yet: the connect notification will flip the state.
-                // If it never comes, nudge once after a grace period.
-                self.setState(.taking("Waiting for link…"), for: id)
-                self.queue.asyncAfter(deadline: .now() + Tuning.postPairGrace) {
-                    guard let again = IOBluetoothDevice(addressString: id) else { return }
-                    if again.isConnected() { self.setState(.connected, for: id); return }
-                    let r = again.openConnection()
-                    let ok = again.isConnected()
-                    self.append("\(name): post-pair openConnection \(ok ? "ok" : "failed (\(r))") \(self.elapsed(id))")
-                    self.setState(ok ? .connected : .failed("paired but no link"), for: id)
-                }
+                // The link dropped after pairing (the trackpad does this). Connect
+                // from our side right now: if the device reconnects on its own
+                // first, macOS greets it with the "Connection Request" dialog.
+                self.setState(.taking("Connecting…"), for: id)
+                self.connectAfterPairing(id: id, name: name, attemptsLeft: Tuning.postPairConnectAttempts)
             }
         } else if error == 4 {
             // HCI "page timeout": the device never answered. Magic devices ignore
