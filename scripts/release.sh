@@ -53,7 +53,13 @@ if [ "$NOTARIZE" = "1" ]; then
     exit 1
   fi
   echo "Submitting to Apple notary service…"
-  xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait
+  SUBMIT=$(xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait 2>&1 | tee /dev/stderr)
+  ID=$(echo "$SUBMIT" | grep -m1 "id:" | awk '{print $2}')
+  if ! echo "$SUBMIT" | grep -q "status: Accepted"; then
+    echo "Notarisation failed; details:"
+    xcrun notarytool log "$ID" --keychain-profile "$PROFILE" || true
+    exit 1
+  fi
   xcrun stapler staple "$APP"
   rm -f "$ZIP"
   ditto -c -k --keepParent "$APP" "$ZIP"

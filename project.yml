@@ -60,3 +60,5 @@ targets:
         Release:
           ENABLE_HARDENED_RUNTIME: true
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
+          # Xcode otherwise injects get-task-allow (debugging), which notarisation rejects.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
