@@ -10,6 +10,7 @@ struct MenuContentView: View {
     @EnvironmentObject private var handoff: HandoffCoordinator
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.openSettings) private var openSettings
+    @State private var inputMonitoringGranted = CapsLockIndicator.inputMonitoringGranted
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -22,6 +23,7 @@ struct MenuContentView: View {
         }
         .padding(12)
         .frame(width: 380)
+        .onAppear { inputMonitoringGranted = CapsLockIndicator.inputMonitoringGranted }
     }
 
     @ViewBuilder
@@ -32,6 +34,10 @@ struct MenuContentView: View {
             Label("Bluetooth access required", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.callout)
+        }
+
+        if settings.capsLockAnimations, !inputMonitoringGranted {
+            InputMonitoringBanner(onRecheck: { inputMonitoringGranted = CapsLockIndicator.inputMonitoringGranted })
         }
 
         if bluetooth.peripherals.isEmpty {
@@ -223,5 +229,33 @@ private struct LogView: View {
             .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+    }
+}
+
+
+/// Shown until macOS lets the app drive the keyboard's Caps Lock light.
+struct InputMonitoringBanner: View {
+    var onRecheck: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("The keyboard light needs Input Monitoring", systemImage: "keyboard")
+                .font(.callout)
+                .foregroundStyle(.orange)
+            Text("Click Allow, turn on Magic Handoff in the list that opens, then click Relaunch.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Allow…") { CapsLockIndicator.requestInputMonitoring() }
+                Button("Relaunch") { CapsLockIndicator.relaunch() }
+                Spacer()
+                Button("Check again", action: onRecheck).buttonStyle(.link)
+            }
+            .controlSize(.small)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

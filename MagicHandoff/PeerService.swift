@@ -22,6 +22,8 @@ struct Message: Codable {
     var devices: [DeviceInfo]?
     var results: [String: Bool]?
     var error: String?
+    /// The sender's hotkey number (1 or 2), carried in pong so both Macs can spot a clash.
+    var hotkey: Int?
 }
 
 struct Peer: Identifiable, Equatable {

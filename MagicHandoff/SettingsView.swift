@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject private var handoff: HandoffCoordinator
     @EnvironmentObject private var peers: PeerService
     @State private var otherCode = ""
+    @State private var inputMonitoringGranted = CapsLockIndicator.inputMonitoringGranted
 
     var body: some View {
         Form {
@@ -79,11 +80,25 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Hotkeys") {
+                Picker("This Mac is", selection: $settings.thisMacHotkey) {
+                    Text("⌘⇧1").tag(1)
+                    Text("⌘⇧2").tag(2)
+                }
+                .pickerStyle(.segmented)
+                Text(hotkeyHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Behavior") {
                 Toggle("Hand off peripherals to the other Mac when this Mac goes to sleep",
                        isOn: $settings.handoffOnSleep)
-                Toggle("Show progress on the keyboard's Caps Lock light", isOn: $settings.capsLockAnimations)
-                Text("Pulses while the other devices are still connecting; bounces once everything is here. Needs Input Monitoring; results are written to the log in the menu.")
+                Toggle("Flash the keyboard's Caps Lock light when a handoff completes", isOn: $settings.capsLockAnimations)
+                if settings.capsLockAnimations, !inputMonitoringGranted {
+                    InputMonitoringBanner(onRecheck: { inputMonitoringGranted = CapsLockIndicator.inputMonitoringGranted })
+                }
+                Text("Each device that arrives and becomes usable is confirmed with two short pulses and a long flash on the keyboard. Needs Input Monitoring; results are written to the log in the menu.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Picker("LED method", selection: $settings.capsLockLEDMethod) {
@@ -97,23 +112,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Searching (4 s)") {
-                        handoff.capsLock.diagnose { ok in
-                            guard ok else { return }
-                            handoff.capsLock.startLoading()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { handoff.capsLock.stopLoading() }
-                        }
-                    }
                     Button("Connected") {
                         handoff.capsLock.diagnose { ok in
                             guard ok else { return }
                             handoff.capsLock.playConnected()
-                        }
-                    }
-                    Button("Goodbye") {
-                        handoff.capsLock.diagnose { ok in
-                            guard ok else { return }
-                            handoff.capsLock.playGoodbye()
                         }
                     }
                 }
@@ -125,7 +127,16 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 560)
+        .frame(width: 480, height: 640)
+        .onAppear { inputMonitoringGranted = CapsLockIndicator.inputMonitoringGranted }
+    }
+
+    private var hotkeyHelp: String {
+        let mine = settings.thisMacHotkey
+        let other = mine == 1 ? 2 : 1
+        var text = "Press ⌘⇧\(other) on the keyboard to send everything to \(handoff.peerName); ⌘⇧\(mine) brings everything here. Set the other Mac to ⌘⇧\(other)."
+        if let h = handoff.peerHotkey, h == mine { text += " ⚠️ The other Mac is also set to ⌘⇧\(h)." }
+        return text
     }
 
     private var statusText: String {

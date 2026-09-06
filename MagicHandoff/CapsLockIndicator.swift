@@ -2,6 +2,7 @@ import Foundation
 import IOKit.hid
 import CoreGraphics
 import Combine
+import AppKit
 
 /// Uses the Magic Keyboard's Caps Lock LED as a status light.
 ///
@@ -89,6 +90,17 @@ final class CapsLockIndicator: ObservableObject {
             self.resetStats()
             self.beginTakeover()
             self.play(pattern, generation: g) { self.restore(); self.reportStats("Connected") }
+        }
+    }
+
+    /// Stop any animation and leave the LED lit — used right before the keyboard
+    /// is handed away, so it stays on for as long as the firmware keeps it.
+    func holdOn() {
+        guard enabled else { return }
+        queue.async {
+            self.loadingActive = false
+            self.generation += 1
+            self.setLED(true)
         }
     }
 
@@ -312,6 +324,31 @@ final class CapsLockIndicator: ObservableObject {
     private func ensureAccess() {
         if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
             _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        }
+    }
+
+    // MARK: - Input Monitoring permission (for the UI)
+
+    /// True when macOS lets this app open the keyboard for the LED.
+    static var inputMonitoringGranted: Bool {
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    }
+
+    /// Triggers the system prompt if macOS has not decided yet, and opens the
+    /// Input Monitoring pane so an earlier "deny" can be flipped.
+    static func requestInputMonitoring() {
+        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// macOS applies a fresh grant only to a new process.
+    static func relaunch() {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }
 

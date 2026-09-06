@@ -21,6 +21,8 @@ final class BluetoothController: NSObject, ObservableObject {
     @Published private(set) var isScanning = false
 
     var anyConnected: Bool { peripherals.contains { $0.state == .connected } }
+    /// Every device we know about is connected here.
+    var allConnected: Bool { !peripherals.isEmpty && peripherals.allSatisfy { $0.state == .connected } }
 
     private let queue = DispatchQueue(label: "com.bekirersever.magichandoff.bluetooth", qos: .userInitiated)
     private var pendingPairs: [String: IOBluetoothDevicePair] = [:]
@@ -596,6 +598,31 @@ final class BluetoothController: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.log.append("\(stamp)  \(line)")
             if self.log.count > 300 { self.log.removeFirst(self.log.count - 300) }
+        }
+        Self.logFileQueue.async { Self.writeLogLine("\(stamp)  \(line)") }
+    }
+
+    // MARK: - Log file (~/Library/Logs/Magic Handoff.log)
+
+    private static let logFileQueue = DispatchQueue(label: "com.bekirersever.magichandoff.logfile")
+    private static let logFileURL: URL = {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("Magic Handoff.log")
+    }()
+
+    private static func writeLogLine(_ line: String) {
+        let data = Data((line + "\n").utf8)
+        if let handle = try? FileHandle(forWritingTo: logFileURL) {
+            defer { try? handle.close() }
+            // Keep the file from growing forever.
+            if let size = try? handle.seekToEnd(), size > 2_000_000 {
+                try? data.write(to: logFileURL)
+            } else {
+                try? handle.write(contentsOf: data)
+            }
+        } else {
+            try? data.write(to: logFileURL)
         }
     }
 

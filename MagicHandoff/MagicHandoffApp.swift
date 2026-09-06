@@ -23,7 +23,7 @@ struct MagicHandoffApp: App {
                 .environmentObject(settings)
                 .environmentObject(handoff.peers)
         } label: {
-            Image(systemName: bluetooth.anyConnected ? "keyboard.fill" : "keyboard")
+            MenuBarLabel(allConnected: bluetooth.allConnected)
         }
         .menuBarExtraStyle(.window)
 
@@ -33,5 +33,16 @@ struct MagicHandoffApp: App {
                 .environmentObject(handoff)
                 .environmentObject(handoff.peers)
         }
+    }
+}
+
+
+/// The menu bar image, redrawn when the connection state or the appearance changes.
+private struct MenuBarLabel: View {
+    let allConnected: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Image(nsImage: MenuIcon.image(allConnected: allConnected, dark: colorScheme == .dark))
     }
 }

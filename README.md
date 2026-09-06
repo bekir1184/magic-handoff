@@ -8,7 +8,9 @@ A macOS menu bar app that moves your Magic Keyboard, Magic Trackpad and Magic Mo
 
 **Phase 2 – in progress.** Two Macs find each other over Bonjour and talk over TLS with a pre-shared key derived from a pairing code you type on both. *Send* releases a device here and asks the other Mac to take it; *Take* asks the other Mac to let go and connects it here. Optional automatic handoff when the Mac goes to sleep.
 
-**Later:** global hotkey, take-back on wake, menu bar polish, signed builds.
+**Also in:** global hotkeys (⌘⇧1 / ⌘⇧2, one per Mac), a menu bar dot that turns green when everything is here, and a Caps Lock LED confirmation on the keyboard as each device arrives.
+
+**Later:** take-back on wake, notarised Developer ID builds.
 
 ## How it works
 

@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import IOKit.hid
 
 /// Orchestrates a handoff between this Mac and the other one.
 ///
@@ -16,6 +17,8 @@ final class HandoffCoordinator: ObservableObject {
     @Published private(set) var peerDevices: [DeviceInfo] = []
     @Published private(set) var busy = false
     @Published var lastError: String?
+    /// Hotkey number the other Mac reports, if any.
+    @Published private(set) var peerHotkey: Int?
 
     let bluetooth: BluetoothController
     let settings: AppSettings
@@ -23,6 +26,15 @@ final class HandoffCoordinator: ObservableObject {
 
     private let sleepMonitor = SleepMonitor()
     let capsLock = CapsLockIndicator()
+    private let hotkeys = HotkeyManager()
+    /// How long the keyboard blinks on the sending Mac before it is released.
+    private static let sendPreamble: TimeInterval = 0.6
+    /// When the keyboard's searching animation started, so "connected" is not
+    /// played before it has been visible for a moment.
+    private var loadingStartedAt: Date?
+    private static let minimumLoading: TimeInterval = 1.5
+    /// How long to wait for macOS to create the HID device after the link is up.
+    private static let hidReadyTimeout: TimeInterval = 5
     private var pingTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
 
@@ -62,6 +74,32 @@ final class HandoffCoordinator: ObservableObject {
         }
 
         pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.ping() }
+        hotkeys.onHotkey = { [weak self] number in self?.handleHotkey(number) }
+    }
+
+    // MARK: - Hotkeys
+
+    /// ⌘⇧N pressed on the keyboard, which is connected to this Mac. N is a Mac:
+    /// this one → make sure everything is here; the other one → send everything there.
+    private func handleHotkey(_ number: Int) {
+        guard isSetUp else { bluetooth.appendLog("⌘⇧\(number): set up the other Mac first"); return }
+        guard !busy else { bluetooth.appendLog("⌘⇧\(number): a handoff is already running"); return }
+        if number == settings.thisMacHotkey {
+            let missing = bluetooth.peripherals.filter { $0.state != .connected && !$0.state.isBusy }
+            if missing.isEmpty {
+                bluetooth.appendLog("⌘⇧\(number): everything is already on this Mac")
+                return
+            }
+            bluetooth.appendLog("⌘⇧\(number): bringing \(missing.count) device(s) here")
+            takeAll()
+        } else {
+            guard bluetooth.anyConnected else {
+                bluetooth.appendLog("⌘⇧\(number): nothing connected here to send")
+                return
+            }
+            bluetooth.appendLog("⌘⇧\(number): sending everything to \(peerName)")
+            sendAll(withPreamble: true)
+        }
     }
 
     // MARK: - Peer selection & reachability
@@ -116,6 +154,12 @@ final class HandoffCoordinator: ObservableObject {
             case .success(let reply):
                 self.peerStatus = .online
                 self.peerDevices = reply.devices ?? []
+                self.peerHotkey = reply.hotkey
+                if let h = reply.hotkey, h == self.settings.thisMacHotkey {
+                    self.lastError = "Both Macs use ⌘⇧\(h). Give one of them the other number in Settings."
+                } else if self.lastError?.hasPrefix("Both Macs use") == true {
+                    self.lastError = nil
+                }
                 if let name = reply.fromName, name != self.settings.peerName { self.settings.peerName = name }
             case .failure(let error):
                 self.peerStatus = .offline
@@ -126,7 +170,7 @@ final class HandoffCoordinator: ObservableObject {
 
     // MARK: - Send (this Mac → other Mac)
 
-    func send(_ ids: [String], completion: ((Bool) -> Void)? = nil) {
+    func send(_ ids: [String], withPreamble: Bool = false, completion: ((Bool) -> Void)? = nil) {
         let infos = ids.compactMap { bluetooth.deviceInfo($0) }
         guard !infos.isEmpty else { completion?(true); return }
         guard let peer = selectedPeer, peerStatus == .online else {
@@ -136,28 +180,34 @@ final class HandoffCoordinator: ObservableObject {
         busy = true
         lastError = nil
         let started = Date()
-        if infos.contains(where: { $0.kind == Peripheral.Kind.keyboard.rawValue }) { capsLock.playGoodbye() }
-        // Release first (it is near-instant), then tell the peer. A pairing attempt
-        // that starts while the device is still linked here fails with "no connection".
-        releaseAll(infos.map(\.id)) { [weak self] results in
+        let hasKeyboard = infos.contains { $0.kind == Peripheral.Kind.keyboard.rawValue }
+
+        let release = { [weak self] in
             guard let self else { return }
-            self.bluetooth.appendLog("Released \(infos.count) device(s) \(Self.since(started)); telling \(peer.name)")
-            self.peers.request(Message(type: "take", devices: infos), to: peer, timeout: 8) { result in
-                self.busy = false
-                switch result {
-                case .success:
-                    self.bluetooth.appendLog("\(peer.name) is taking them \(Self.since(started))")
-                    completion?(results.values.allSatisfy { $0 })
-                case .failure(let error):
-                    self.fail("Released, but \(peer.name) could not be reached (\(error.localizedDescription)). Use Take to get the devices back.")
-                    completion?(false)
+            // Release first (it is near-instant), then tell the peer. A pairing attempt
+            // that starts while the device is still linked here fails with "no connection".
+            self.releaseAll(infos.map(\.id)) { results in
+                self.bluetooth.appendLog("Released \(infos.count) device(s) \(Self.since(started)); telling \(peer.name)")
+                self.peers.request(Message(type: "take", devices: infos), to: peer, timeout: 8) { result in
+                    self.busy = false
+                    switch result {
+                    case .success:
+                        self.bluetooth.appendLog("\(peer.name) is taking them \(Self.since(started))")
+                        completion?(results.values.allSatisfy { $0 })
+                    case .failure(let error):
+                        self.fail("Released, but \(peer.name) could not be reached (\(error.localizedDescription)). Use Take to get the devices back.")
+                        completion?(false)
+                    }
                 }
             }
         }
+
+        _ = withPreamble; _ = hasKeyboard
+        release()
     }
 
-    func sendAll(completion: ((Bool) -> Void)? = nil) {
-        send(bluetooth.peripherals.filter { $0.state == .connected }.map(\.id), completion: completion)
+    func sendAll(withPreamble: Bool = false, completion: ((Bool) -> Void)? = nil) {
+        send(bluetooth.peripherals.filter { $0.state == .connected }.map(\.id), withPreamble: withPreamble, completion: completion)
     }
 
     // MARK: - Take (other Mac → this Mac)
@@ -198,13 +248,14 @@ final class HandoffCoordinator: ObservableObject {
     private static let retryDelay: TimeInterval = 1.5
 
     private func takeWithRetry(_ ids: [String], started: Date, label: String) {
+        loadingStartedAt = nil
         let ordered = keyboardFirst(ids)
         takeAll(ordered) { [weak self] results in
             guard let self else { return }
             let failed = results.filter { !$0.value }.map(\.key)
             if failed.isEmpty {
                 self.busy = false
-                self.capsLock.playConnected()
+                self.playConnectedAfterMinimumLoading()
                 self.bluetooth.appendLog("\(label) \(ids.count) device(s) \(Self.since(started))")
                 return
             }
@@ -214,15 +265,51 @@ final class HandoffCoordinator: ObservableObject {
                     self.busy = false
                     let stillFailed = retry.filter { !$0.value }.count
                     if stillFailed == 0 {
-                        self.capsLock.playConnected()
+                        self.playConnectedAfterMinimumLoading()
                         self.bluetooth.appendLog("\(label) \(ids.count) device(s) after retry \(Self.since(started))")
                     } else {
-                        self.capsLock.stopLoading()
                         self.fail("\(stillFailed) device(s) could not be taken. Turn the device off and on, then try again.")
                     }
                 }
             }
         }
+    }
+
+    /// Each device flashes on arrival; nothing extra at the end.
+    private func playConnectedAfterMinimumLoading() {}
+
+    /// A device counts as arrived once macOS has created its HID device, i.e.
+    /// once it can actually type or move the pointer — the Bluetooth link comes
+    /// up a little before that. Bluetooth HID devices carry the low 32 bits of
+    /// the device address (top bit cleared) as their LocationID.
+    private func waitForHID(address: String, completion: @escaping (Bool) -> Void) {
+        guard let location = Self.locationID(forAddress: address) else { completion(true); return }
+        let deadline = Date().addingTimeInterval(Self.hidReadyTimeout)
+        func check() {
+            if Self.hidDevicePresent(location: location) { completion(true); return }
+            if Date() > deadline { completion(false); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { check() }
+        }
+        check()
+    }
+
+    private static func locationID(forAddress address: String) -> Int? {
+        let bytes = address.split(whereSeparator: { $0 == "-" || $0 == ":" }).compactMap { UInt32($0, radix: 16) }
+        guard bytes.count == 6 else { return nil }
+        let low = (bytes[2] << 24) | (bytes[3] << 16) | (bytes[4] << 8) | bytes[5]
+        return Int(low & 0x7FFF_FFFF)
+    }
+
+    private static func hidDevicePresent(location: Int) -> Bool {
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        // Generic Desktop page: keyboard (6) or mouse/pointer (2) — the usable interface.
+        let matching: [String: Any] = [
+            kIOHIDLocationIDKey as String: location,
+            kIOHIDPrimaryUsagePageKey as String: 0x01,
+        ]
+        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+        guard let set = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else { return false }
+        return !set.isEmpty
     }
 
     /// The keyboard goes first so its Caps Lock LED can show progress for the rest.
@@ -249,15 +336,12 @@ final class HandoffCoordinator: ObservableObject {
     private func handle(_ message: Message, reply: @escaping (Message) -> Void) {
         switch message.type {
         case "ping":
-            reply(Message(type: "pong", devices: bluetooth.deviceInfos()))
+            reply(Message(type: "pong", devices: bluetooth.deviceInfos(), hotkey: settings.thisMacHotkey))
 
         case "release":
             let ids = (message.devices ?? []).map(\.id)
             bluetooth.appendLog("\(message.fromName ?? "Peer") asked to release \(ids.count) device(s)")
-            let releasingKeyboard = ids.contains { id in
-                bluetooth.peripherals.first { $0.id == id }?.kind == .keyboard
-            }
-            if releasingKeyboard { capsLock.playGoodbye() }
+
             releaseAll(ids) { results in
                 reply(Message(type: "released", results: results))
             }
@@ -321,12 +405,14 @@ final class HandoffCoordinator: ObservableObject {
             remaining.removeFirst()
             bluetooth.take(id, liftIgnoreFirst: liftIgnoreFirst) { ok in
                 results[id] = ok
-                // Keyboard is here and others are still coming: show progress on its LED.
-                if ok, !remaining.isEmpty, self.bluetooth.peripherals.first(where: { $0.id == id })?.kind == .keyboard {
-                    self.capsLock.invalidate()   // fresh HID device after a (re)pair
-                    self.capsLock.startLoading()
+                guard ok, let p = self.bluetooth.peripherals.first(where: { $0.id == id }) else { next(); return }
+                self.waitForHID(address: p.id) { ready in
+                    self.bluetooth.appendLog(ready ? "\(p.name): ready to use" : "\(p.name): link up, but no HID device after \(Int(Self.hidReadyTimeout))s")
+                    if p.kind == .keyboard { self.capsLock.invalidate() }   // fresh HID device after a (re)pair
+                    // One flash per device that arrives, on the keyboard's LED.
+                    self.capsLock.playConnected()
+                    next()
                 }
-                next()
             }
         }
         next()
