@@ -180,12 +180,20 @@ private struct PeripheralRow: View {
 private struct LogView: View {
     let lines: [String]
     let onClear: () -> Void
+    @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("Log").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button(copied ? "Copied" : "Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                }
+                .controlSize(.mini).buttonStyle(.plain).foregroundStyle(.secondary)
                 Button("Clear", action: onClear).controlSize(.mini).buttonStyle(.plain)
                     .foregroundStyle(.secondary)
             }
