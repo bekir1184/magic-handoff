@@ -91,8 +91,9 @@ struct SettingsView: View {
                     Button("Test") {
                         handoff.capsLock.diagnose { ok in
                             guard ok else { return }
+                            // Preview the real sequence: searching for ~3.5 s, then the connected bounce.
                             handoff.capsLock.startLoading()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { handoff.capsLock.playConnected() }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { handoff.capsLock.playConnected() }
                         }
                     }
                     .disabled(!settings.capsLockAnimations)
