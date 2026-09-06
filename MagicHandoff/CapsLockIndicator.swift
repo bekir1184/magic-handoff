@@ -17,7 +17,7 @@ final class CapsLockIndicator {
 
     // MARK: - Public
 
-    /// Fast steady flicker (50 ms on / 50 ms off) until `stopLoading()` or `playConnected()`.
+    /// Steady blink (200 ms on / 200 ms off) until `stopLoading()` or `playConnected()`.
     func startLoading() {
         guard enabled else { return }
         queue.async {
@@ -36,7 +36,7 @@ final class CapsLockIndicator {
         }
     }
 
-    /// A burst of very fast flicker (25 ms), then one full 130 ms flash, then off
+    /// A burst of fast flicker (100 ms), then one full 520 ms flash, then off
     /// and back to the real Caps Lock state.
     func playConnected() {
         guard enabled else { return }
@@ -45,9 +45,9 @@ final class CapsLockIndicator {
             self.generation += 1
             let g = self.generation
             var pattern: [(on: Bool, ms: Int)] = []
-            for _ in 0..<8 { pattern.append((true, 25)); pattern.append((false, 25)) }
-            pattern.append((false, 60))
-            pattern.append((true, 130))
+            for _ in 0..<8 { pattern.append((true, 100)); pattern.append((false, 100)) }
+            pattern.append((false, 240))
+            pattern.append((true, 520))
             pattern.append((false, 0))
             self.play(pattern, generation: g) { self.restore() }
         }
@@ -59,7 +59,7 @@ final class CapsLockIndicator {
         queue.async {
             self.generation += 1
             let g = self.generation
-            self.play([(true, 120), (false, 0)], generation: g) { self.restore() }
+            self.play([(true, 480), (false, 0)], generation: g) { self.restore() }
         }
     }
 
@@ -67,7 +67,7 @@ final class CapsLockIndicator {
 
     private func loop(generation g: Int) {
         guard g == generation, loadingActive else { return }
-        play([(true, 50), (false, 50)], generation: g) {
+        play([(true, 200), (false, 200)], generation: g) {
             self.loop(generation: g)
         }
     }
