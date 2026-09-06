@@ -34,7 +34,7 @@ targets:
         CFBundleDisplayName: Magic Handoff
         CFBundleName: Magic Handoff
         CFBundleShortVersionString: "0.0.1"
-        CFBundleVersion: "10"
+        CFBundleVersion: "11"
         CFBundleIconFile: AppIcon
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"

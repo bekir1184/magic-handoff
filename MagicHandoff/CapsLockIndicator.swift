@@ -4,6 +4,14 @@ import CoreGraphics
 
 /// Uses the Magic Keyboard's Caps Lock LED as a status light.
 ///
+/// Timing follows indicator-light practice: IEC 60073 puts a "normal" flash at
+/// 1.4–2.8 Hz and human-factors guides (FAA HFDS, MIL-STD-1472) ask for
+/// 0.8–5 Hz, at most two distinct rates, nothing above 3 Hz, pulses of at
+/// least ~100 ms to read as a flash, and a long pulse at least twice a short
+/// one so the two are told apart. Bluetooth devices use a steady fast blink for
+/// "searching" and a short confirmation followed by a solid light for
+/// "connected".
+///
 /// The keyboard's only host-controllable light is the Caps Lock LED (HID output
 /// report 1, LED usage page bit 2). Writing the report lights the LED without
 /// changing the Caps Lock state; when the animation ends the LED is put back to
@@ -17,7 +25,7 @@ final class CapsLockIndicator {
 
     // MARK: - Public
 
-    /// Steady blink (200 ms on / 200 ms off) until `stopLoading()` or `playConnected()`.
+    /// Searching: steady 2 Hz blink (250 ms on / 250 ms off) until `stopLoading()` or `playConnected()`.
     func startLoading() {
         guard enabled else { return }
         queue.async {
@@ -36,19 +44,20 @@ final class CapsLockIndicator {
         }
     }
 
-    /// A burst of fast flicker (100 ms), then one full 520 ms flash, then off
-    /// and back to the real Caps Lock state.
+    /// Connected: two short pulses (120 ms, "thump-thump"), a beat of silence,
+    /// then one long solid flash (700 ms), then off and back to the real Caps
+    /// Lock state.
     func playConnected() {
         guard enabled else { return }
         queue.async {
             self.loadingActive = false
             self.generation += 1
             let g = self.generation
-            var pattern: [(on: Bool, ms: Int)] = []
-            for _ in 0..<8 { pattern.append((true, 100)); pattern.append((false, 100)) }
-            pattern.append((false, 240))
-            pattern.append((true, 520))
-            pattern.append((false, 0))
+            let pattern: [(on: Bool, ms: Int)] = [
+                (true, 120), (false, 120),
+                (true, 120), (false, 250),
+                (true, 700), (false, 0),
+            ]
             self.play(pattern, generation: g) { self.restore() }
         }
     }
@@ -59,7 +68,7 @@ final class CapsLockIndicator {
         queue.async {
             self.generation += 1
             let g = self.generation
-            self.play([(true, 480), (false, 0)], generation: g) { self.restore() }
+            self.play([(true, 300), (false, 0)], generation: g) { self.restore() }
         }
     }
 
@@ -67,7 +76,7 @@ final class CapsLockIndicator {
 
     private func loop(generation g: Int) {
         guard g == generation, loadingActive else { return }
-        play([(true, 200), (false, 200)], generation: g) {
+        play([(true, 250), (false, 250)], generation: g) {
             self.loop(generation: g)
         }
     }
