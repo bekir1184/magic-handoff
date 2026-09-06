@@ -117,30 +117,27 @@ final class HandoffCoordinator: ObservableObject {
     func send(_ ids: [String], completion: ((Bool) -> Void)? = nil) {
         let infos = ids.compactMap { bluetooth.deviceInfo($0) }
         guard !infos.isEmpty else { completion?(true); return }
-        guard let peer = selectedPeer else {
-            fail("\(peerName) is not on the network right now")
+        guard let peer = selectedPeer, peerStatus == .online else {
+            fail("\(peerName) is not reachable right now; nothing was released")
             completion?(false); return
         }
         busy = true
         lastError = nil
         let started = Date()
-        // 1) Tell the peer first. It starts paging right away and answers "accepted"
-        //    immediately, so nothing is released if it cannot be reached.
-        peers.request(Message(type: "take", devices: infos), to: peer, timeout: 8) { [weak self] result in
+        // Release first (it is near-instant), then tell the peer. A pairing attempt
+        // that starts while the device is still linked here fails with "no connection".
+        releaseAll(infos.map(\.id)) { [weak self] results in
             guard let self else { return }
-            switch result {
-            case .failure(let error):
+            self.bluetooth.appendLog("Released \(infos.count) device(s) \(Self.since(started)); telling \(peer.name)")
+            self.peers.request(Message(type: "take", devices: infos), to: peer, timeout: 8) { result in
                 self.busy = false
-                self.fail("\(peer.name) could not be reached (\(error.localizedDescription)); nothing was released.")
-                completion?(false)
-            case .success:
-                self.bluetooth.appendLog("\(peer.name) accepted \(Self.since(started)); releasing here")
-                // 2) Let go. The peer's pairing attempt picks the devices up as they free.
-                self.releaseAll(infos.map(\.id)) { results in
-                    self.busy = false
-                    let ok = results.values.allSatisfy { $0 }
-                    self.bluetooth.appendLog("Sent \(infos.count) device(s) to \(peer.name) \(Self.since(started))")
-                    completion?(ok)
+                switch result {
+                case .success:
+                    self.bluetooth.appendLog("\(peer.name) is taking them \(Self.since(started))")
+                    completion?(results.values.allSatisfy { $0 })
+                case .failure(let error):
+                    self.fail("Released, but \(peer.name) could not be reached (\(error.localizedDescription)). Use Take to get the devices back.")
+                    completion?(false)
                 }
             }
         }
@@ -158,40 +155,54 @@ final class HandoffCoordinator: ObservableObject {
         busy = true
         lastError = nil
         let started = Date()
-        var peerAnswered = false
 
-        // 1) Ask the peer to let go — and do not wait for the answer.
-        if let peer = selectedPeer {
-            peers.request(Message(type: "release", devices: infos), to: peer, timeout: 8) { [weak self] result in
-                switch result {
-                case .success:
-                    peerAnswered = true
-                    self?.bluetooth.appendLog("\(peer.name) released \(Self.since(started))")
-                case .failure(let error):
-                    self?.bluetooth.appendLog("\(peer.name) did not answer (\(error.localizedDescription)); trying anyway")
-                }
+        // 1) Ask the peer to let go and wait for its answer: pairing a device that
+        //    is still linked to the other Mac fails with "no connection" (error 2).
+        //    If the peer is not around, go ahead anyway — nothing else can free it.
+        let proceed: (Bool) -> Void = { [weak self] peerReleased in
+            guard let self else { return }
+            let settle: TimeInterval = peerReleased ? Self.postReleaseSettle : 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
+                self.takeWithRetry(infos.map(\.id), started: started, label: "Took")
             }
         }
+        guard let peer = selectedPeer, peerStatus != .offline else { proceed(false); return }
+        peers.request(Message(type: "release", devices: infos), to: peer, timeout: 8) { [weak self] result in
+            switch result {
+            case .success:
+                self?.bluetooth.appendLog("\(peer.name) released \(Self.since(started))")
+                proceed(true)
+            case .failure(let error):
+                self?.bluetooth.appendLog("\(peer.name) did not answer (\(error.localizedDescription)); trying anyway")
+                proceed(false)
+            }
+        }
+    }
 
-        // 2) Start pairing now. IOBluetoothDevicePair keeps paging, so the devices
-        //    are picked up the moment the peer frees them.
-        takeAll(infos.map(\.id)) { [weak self] results in
+    /// Give the device a moment to notice the unbond and enter pairing mode.
+    private static let postReleaseSettle: TimeInterval = 0.4
+    /// Pause before the automatic second attempt.
+    private static let retryDelay: TimeInterval = 1.5
+
+    private func takeWithRetry(_ ids: [String], started: Date, label: String) {
+        takeAll(ids) { [weak self] results in
             guard let self else { return }
             let failed = results.filter { !$0.value }.map(\.key)
             if failed.isEmpty {
                 self.busy = false
-                self.bluetooth.appendLog("Took \(infos.count) device(s) \(Self.since(started))")
+                self.bluetooth.appendLog("\(label) \(ids.count) device(s) \(Self.since(started))")
                 return
             }
-            // One automatic retry: the device may have needed a moment after the unbond.
-            self.bluetooth.appendLog("Retrying \(failed.count) device(s)\(peerAnswered ? "" : " (peer never answered)")")
-            self.takeAll(failed) { retry in
-                self.busy = false
-                let stillFailed = retry.filter { !$0.value }.count
-                if stillFailed == 0 {
-                    self.bluetooth.appendLog("Took \(infos.count) device(s) after retry \(Self.since(started))")
-                } else {
-                    self.fail("\(stillFailed) device(s) could not be taken. Touch the device or turn it off and on, then try again.")
+            self.bluetooth.appendLog("Retrying \(failed.count) device(s) in \(Self.retryDelay)s")
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelay) {
+                self.takeAll(failed) { retry in
+                    self.busy = false
+                    let stillFailed = retry.filter { !$0.value }.count
+                    if stillFailed == 0 {
+                        self.bluetooth.appendLog("\(label) \(ids.count) device(s) after retry \(Self.since(started))")
+                    } else {
+                        self.fail("\(stillFailed) device(s) could not be taken. Turn the device off and on, then try again.")
+                    }
                 }
             }
         }
@@ -225,27 +236,11 @@ final class HandoffCoordinator: ObservableObject {
             let infos = message.devices ?? []
             infos.forEach { bluetooth.ensureKnown($0) }
             reply(Message(type: "accepted"))
-            bluetooth.appendLog("\(message.fromName ?? "Peer") is handing over \(infos.count) device(s); taking them")
+            bluetooth.appendLog("\(message.fromName ?? "Peer") handed over \(infos.count) device(s); taking them")
             busy = true
             let started = Date()
-            takeAll(infos.map(\.id)) { [weak self] results in
-                guard let self else { return }
-                let failed = results.filter { !$0.value }.map(\.key)
-                if failed.isEmpty {
-                    self.busy = false
-                    self.bluetooth.appendLog("Received \(infos.count) device(s) \(Self.since(started))")
-                    return
-                }
-                self.bluetooth.appendLog("Retrying \(failed.count) device(s)")
-                self.takeAll(failed) { retry in
-                    self.busy = false
-                    let stillFailed = retry.filter { !$0.value }.count
-                    if stillFailed == 0 {
-                        self.bluetooth.appendLog("Received \(infos.count) device(s) after retry \(Self.since(started))")
-                    } else {
-                        self.fail("\(stillFailed) device(s) did not connect. Touch the device or turn it off and on, then use Take.")
-                    }
-                }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.postReleaseSettle) { [weak self] in
+                self?.takeWithRetry(infos.map(\.id), started: started, label: "Received")
             }
 
         default:

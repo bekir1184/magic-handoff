@@ -153,7 +153,10 @@ final class PeerService: ObservableObject {
                 Self.receiveMessage(on: connection) { result in
                     switch result {
                     case .failure(let error):
-                        self.log("Incoming request failed: \(error.localizedDescription)")
+                        // ECONNRESET after the caller got its reply is normal; only report real failures.
+                        if case .posix(let code) = error as? NWError, code == .ECONNRESET {} else {
+                            self.log("Incoming request failed: \(error.localizedDescription)")
+                        }
                         connection.cancel()
                     case .success(let message):
                         self.log("← \(message.type) from \(message.fromName ?? "?")")

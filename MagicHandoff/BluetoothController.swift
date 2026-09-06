@@ -68,6 +68,8 @@ final class BluetoothController: NSObject, ObservableObject {
         /// up on the bond and pairing from scratch.
         static let connectAttempts = 4
         static let connectRetryGap: TimeInterval = 0.8
+        /// HCI page timeout for the bonded-connect probe, in 0.625 ms slots (≈5 s).
+        static let probePageTimeout: BluetoothHCIPageTimeout = 8000
         static let refreshInterval: TimeInterval = 2
         static let inquiryLength: UInt8 = 8
     }
@@ -308,12 +310,17 @@ final class BluetoothController: NSObject, ObservableObject {
     }
 
     /// Classic release: forget the device on this Mac. Runs on the Bluetooth queue.
+    ///
+    /// The device is put on the ignore list first: once unbonded it will try to
+    /// reconnect to us, and without the ignore that shows macOS's "Connection
+    /// Request" dialog and blocks the other Mac's pairing. Ignored, the attempt
+    /// is refused silently and the device falls back to pairing mode.
     private func removeBond(_ device: IOBluetoothDevice, id: String, name: String) {
         DispatchQueue.main.async { self.releasedOnPurpose[id] = nil }
-        if ignoredByUs.contains(id) { unignore(device, id: id) }
+        ignore(device, id: id)
         if device.responds(to: Selector(("remove"))) {
             device.perform(Selector(("remove")))
-            append("\(name): bond removed (-remove) \(elapsed(id))")
+            append("\(name): ignored + bond removed \(elapsed(id))")
             setState(.disconnected, for: id)
         } else {
             let r = device.closeConnection()
@@ -374,7 +381,8 @@ final class BluetoothController: NSObject, ObservableObject {
             self.watchDisconnect(of: device, id: id)
             self.setState(.connected, for: id); return
         }
-        let r = device.openConnection()
+        // Short page timeout: a dead bond should cost a few seconds, not 20.
+        let r = device.openConnection(nil, withPageTimeout: Tuning.probePageTimeout, authenticationRequired: true)
         if device.isConnected() {
             self.append("\(name): connected via openConnection \(self.elapsed(id))")
             self.watchDisconnect(of: device, id: id)

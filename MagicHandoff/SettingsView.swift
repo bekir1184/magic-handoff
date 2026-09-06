@@ -81,8 +81,8 @@ struct SettingsView: View {
             Section("Behavior") {
                 Toggle("Hand off peripherals to the other Mac when this Mac goes to sleep",
                        isOn: $settings.handoffOnSleep)
-                Toggle("Fast switching: keep the pairing on both Macs", isOn: $settings.keepBonds)
-                Text("Releasing only closes the link, so taking a device back is a plain reconnect with no pairing and no \"Connection Request\" dialog. If a device turns out to remember only one Mac, the app falls back to re-pairing on its own.")
+                Toggle("Experimental: keep the pairing on both Macs", isOn: $settings.keepBonds)
+                Text("Off (recommended): releasing forgets the device here and the other Mac pairs it fresh, about 3–5 s. On: releasing only closes the link; this is faster for the Mac that paired last, but a Magic device that still considers itself owned refuses to pair with the other Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

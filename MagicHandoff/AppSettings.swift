@@ -30,7 +30,7 @@ final class AppSettings: ObservableObject {
         peerID = defaults.string(forKey: "peerID")
         peerName = defaults.string(forKey: "peerName")
         handoffOnSleep = defaults.object(forKey: "handoffOnSleep") as? Bool ?? true
-        keepBonds = defaults.object(forKey: "keepBonds") as? Bool ?? true
+        keepBonds = defaults.object(forKey: "keepBonds") as? Bool ?? false
         if let id = defaults.string(forKey: "thisMacID") {
             thisMacID = id
         } else {
