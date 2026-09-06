@@ -33,8 +33,8 @@ targets:
       properties:
         CFBundleDisplayName: Magic Handoff
         CFBundleName: Magic Handoff
-        CFBundleShortVersionString: "0.0.3"
-        CFBundleVersion: "16"
+        CFBundleShortVersionString: "0.0.4"
+        CFBundleVersion: "17"
         CFBundleIconFile: AppIcon
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
@@ -55,3 +55,8 @@ targets:
         ENABLE_APP_SANDBOX: false
         SWIFT_STRICT_CONCURRENCY: minimal
         GENERATE_INFOPLIST_FILE: false
+      configs:
+        # Release builds are meant for Developer ID + notarisation (scripts/release.sh).
+        Release:
+          ENABLE_HARDENED_RUNTIME: true
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"

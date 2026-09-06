@@ -71,6 +71,7 @@ final class HandoffCoordinator: ObservableObject {
         sleepMonitor.onWillSleep = { [weak self] done in self?.handleSleep(done: done) }
         sleepMonitor.onWake = { [weak self] in
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.ping() }
+            self?.handleWake()
         }
 
         pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.ping() }
@@ -82,6 +83,7 @@ final class HandoffCoordinator: ObservableObject {
     /// ⌘⇧N pressed on the keyboard, which is connected to this Mac. N is a Mac:
     /// this one → make sure everything is here; the other one → send everything there.
     private func handleHotkey(_ number: Int) {
+        handedOffOnSleep = []
         guard isSetUp else { bluetooth.appendLog("⌘⇧\(number): set up the other Mac first"); return }
         guard !busy else { bluetooth.appendLog("⌘⇧\(number): a handoff is already running"); return }
         if number == settings.thisMacHotkey {
@@ -226,7 +228,7 @@ final class HandoffCoordinator: ObservableObject {
             guard let self else { return }
             let settle: TimeInterval = peerReleased ? Self.postReleaseSettle : 0
             DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
-                self.takeWithRetry(infos.map(\.id), started: started, label: "Took")
+                self.takeWithRetry(infos.map(\.id), started: started, label: "Took", freshlyReleased: peerReleased)
             }
         }
         guard let peer = selectedPeer, peerStatus != .offline else { proceed(false); return }
@@ -247,10 +249,10 @@ final class HandoffCoordinator: ObservableObject {
     /// Pause before the automatic second attempt.
     private static let retryDelay: TimeInterval = 1.5
 
-    private func takeWithRetry(_ ids: [String], started: Date, label: String) {
+    private func takeWithRetry(_ ids: [String], started: Date, label: String, freshlyReleased: Bool = false) {
         loadingStartedAt = nil
         let ordered = keyboardFirst(ids)
-        takeAll(ordered) { [weak self] results in
+        takeAll(ordered, freshlyReleased: freshlyReleased) { [weak self] results in
             guard let self else { return }
             let failed = results.filter { !$0.value }.map(\.key)
             if failed.isEmpty {
@@ -354,7 +356,7 @@ final class HandoffCoordinator: ObservableObject {
             busy = true
             let started = Date()
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.postReleaseSettle) { [weak self] in
-                self?.takeWithRetry(infos.map(\.id), started: started, label: "Received")
+                self?.takeWithRetry(infos.map(\.id), started: started, label: "Received", freshlyReleased: true)
             }
 
         default:
@@ -370,12 +372,38 @@ final class HandoffCoordinator: ObservableObject {
               bluetooth.peripherals.contains(where: { $0.state == .connected }) else {
             done(); return
         }
-        bluetooth.appendLog("Going to sleep: handing peripherals to \(peerName)")
+        let ids = bluetooth.peripherals.filter { $0.state == .connected }.map(\.id)
+        bluetooth.appendLog("Going to sleep: handing \(ids.count) device(s) to \(peerName)")
         var called = false
         let finish = { if !called { called = true; done() } }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { finish() }
-        sendAll { _ in finish() }
+        send(ids) { [weak self] ok in
+            if ok { self?.handedOffOnSleep = ids }
+            finish()
+        }
     }
+
+    /// Devices handed to the other Mac because this Mac went to sleep; taken
+    /// back on wake when the option is on. Persisted in case the app restarts.
+    private var handedOffOnSleep: [String] {
+        get { UserDefaults.standard.stringArray(forKey: "handedOffOnSleep") ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: "handedOffOnSleep") }
+    }
+
+    private func handleWake() {
+        let ids = handedOffOnSleep
+        guard settings.takeBackOnWake, !ids.isEmpty else { return }
+        handedOffOnSleep = []
+        // Wi-Fi needs a moment after wake; the take asks the peer to release first.
+        bluetooth.appendLog("Awake: taking back \(ids.count) device(s) handed off at sleep")
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeTakeBackDelay) { [weak self] in
+            guard let self, !self.busy else { return }
+            let stillAway = ids.filter { id in self.bluetooth.peripherals.first { $0.id == id }?.state != .connected }
+            if stillAway.isEmpty { return }
+            self.take(stillAway)
+        }
+    }
+    private static let wakeTakeBackDelay: TimeInterval = 4
 
     // MARK: - Parallel helpers (main queue)
 
@@ -397,13 +425,13 @@ final class HandoffCoordinator: ObservableObject {
     /// device's link dropped before its HID session was up — it then reconnected
     /// on its own and macOS raised the Connection Request dialog. Sequential
     /// pairing keeps the HID session inside the pairing connection.
-    private func takeAll(_ ids: [String], liftIgnoreFirst: Bool = false, completion: @escaping ([String: Bool]) -> Void) {
+    private func takeAll(_ ids: [String], liftIgnoreFirst: Bool = false, freshlyReleased: Bool = false, completion: @escaping ([String: Bool]) -> Void) {
         var results: [String: Bool] = [:]
         var remaining = ids
         func next() {
             guard let id = remaining.first else { completion(results); return }
             remaining.removeFirst()
-            bluetooth.take(id, liftIgnoreFirst: liftIgnoreFirst) { ok in
+            bluetooth.take(id, liftIgnoreFirst: liftIgnoreFirst, freshlyReleased: freshlyReleased) { ok in
                 results[id] = ok
                 guard ok, let p = self.bluetooth.peripherals.first(where: { $0.id == id }) else { next(); return }
                 self.waitForHID(address: p.id) { ready in

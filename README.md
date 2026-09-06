@@ -10,7 +10,9 @@ A macOS menu bar app that moves your Magic Keyboard, Magic Trackpad and Magic Mo
 
 **Also in:** global hotkeys (⌘⇧1 / ⌘⇧2, one per Mac), a menu bar dot that turns green when everything is here, and a Caps Lock LED confirmation on the keyboard as each device arrives.
 
-**Later:** take-back on wake, notarised Developer ID builds.
+**Also:** devices handed off because the Mac went to sleep are taken back when it wakes (optional).
+
+**Later:** notarised Developer ID builds (script is in place; needs the certificate).
 
 ## How it works
 
@@ -34,6 +36,10 @@ Or run `xcodegen generate` and open `MagicHandoff.xcodeproj` in Xcode. macOS ask
 Install the app on both Macs. Each Mac shows a pairing code in the menu bar popover on first launch; type one Mac's code into the other and the two connect automatically. Until then the popover only shows the setup steps.
 
 Keep the checkout outside iCloud Drive (for example `~/Developer`): file-provider extended attributes on synced folders break code signing.
+
+## Releasing
+
+`scripts/release.sh` builds a Release app with the hardened runtime, signs it with your *Developer ID Application* certificate, submits it to Apple's notary service, staples the ticket and writes `dist/Magic-Handoff-<version>.zip`. Two one-time steps need your Apple account and are not scripted: create the Developer ID certificate in Xcode → Settings → Accounts → Manage Certificates, and store notarisation credentials with `xcrun notarytool store-credentials magic-handoff …` (an app-specific password from appleid.apple.com). Until then, `scripts/build.sh` produces a Development-signed build that needs "Open Anyway" once on each Mac.
 
 ## Warning
 

@@ -79,6 +79,8 @@ final class BluetoothController: NSObject, ObservableObject {
         static let ignoreAfterRemoveDelay: TimeInterval = 0.3
         /// HCI page timeout for the bonded-connect probe, in 0.625 ms slots (≈5 s).
         static let probePageTimeout: BluetoothHCIPageTimeout = 8000
+        /// How long we actually wait for that probe before moving on.
+        static let probeWait: TimeInterval = 5
         static let refreshInterval: TimeInterval = 2
         static let inquiryLength: UInt8 = 8
     }
@@ -366,7 +368,10 @@ final class BluetoothController: NSObject, ObservableObject {
     ///   instead of raising the "Connection Request" dialog; the ignore is lifted
     ///   once pairing succeeds. Pass `true` on a retry, in case the ignore was
     ///   what got in the way.
-    func take(_ id: String, liftIgnoreFirst: Bool = false, completion: ((Bool) -> Void)? = nil) {
+    /// - Parameter freshlyReleased: the other Mac just confirmed it removed its
+    ///   bond, so the device is unowned and in pairing mode. Any bond we still
+    ///   hold is stale by definition; skip the connect probe and pair directly.
+    func take(_ id: String, liftIgnoreFirst: Bool = false, freshlyReleased: Bool = false, completion: ((Bool) -> Void)? = nil) {
         if let completion { addWaiter(id, .take, completion) }
         opStarted[id] = Date()
         releasedOnPurpose[id] = nil
@@ -397,6 +402,15 @@ final class BluetoothController: NSObject, ObservableObject {
             //    switching the device may still be letting go of the other Mac, so
             //    retry a few times before deciding the bond is dead.
             if device.isPaired() {
+                if freshlyReleased && !keep {
+                    // The peer just unbonded it: our record is stale, do not probe.
+                    self.append("\(name): stale bond after the other Mac released; re-pairing")
+                    if device.responds(to: Selector(("remove"))) { device.perform(Selector(("remove"))) }
+                    self.queue.asyncAfter(deadline: .now() + Tuning.unbondSettle) {
+                        self.startPairing(id: id, name: name)
+                    }
+                    return
+                }
                 self.connectBonded(device, id: id, name: name,
                                    attemptsLeft: keep ? Tuning.connectAttempts : 1)
                 return
@@ -416,8 +430,9 @@ final class BluetoothController: NSObject, ObservableObject {
             self.watchDisconnect(of: device, id: id)
             self.setState(.connected, for: id); return
         }
-        // Short page timeout: a dead bond should cost a few seconds, not 20.
-        let r = device.openConnection(nil, withPageTimeout: Tuning.probePageTimeout, authenticationRequired: true)
+        // Bounded probe: the page-timeout argument is not honoured by bluetoothd
+        // (a dead bond still costs ~20 s), so wait on the async form ourselves.
+        let r = self.boundedOpen(device, timeout: Tuning.probeWait)
         if device.isConnected() {
             self.liftIgnoreIfNeeded(device, id: id)
             self.append("\(name): connected via openConnection \(self.elapsed(id))")
@@ -438,6 +453,32 @@ final class BluetoothController: NSObject, ObservableObject {
         }
         self.queue.asyncAfter(deadline: .now() + Tuning.unbondSettle) {
             self.startPairing(id: id, name: name)
+        }
+    }
+
+    /// Opens the connection asynchronously and waits at most `timeout` for the
+    /// result. Returns the connection status, or kIOReturnTimeout if it did not
+    /// come back in time (the attempt keeps running in bluetoothd; a later
+    /// pairing supersedes it).
+    private func boundedOpen(_ device: IOBluetoothDevice, timeout: TimeInterval) -> IOReturn {
+        let waiter = ConnectionWaiter()
+        let started = device.openConnection(waiter, withPageTimeout: Tuning.probePageTimeout, authenticationRequired: true)
+        guard started == kIOReturnSuccess else { return started }
+        return waiter.wait(timeout) ?? kIOReturnTimeout
+    }
+
+    /// Target for the asynchronous openConnection; signals when the link attempt finishes.
+    private final class ConnectionWaiter: NSObject {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var status: IOReturn = kIOReturnTimeout
+
+        @objc func connectionComplete(_ device: IOBluetoothDevice, status: IOReturn) {
+            self.status = status
+            semaphore.signal()
+        }
+
+        func wait(_ timeout: TimeInterval) -> IOReturn? {
+            semaphore.wait(timeout: .now() + timeout) == .success ? status : nil
         }
     }
 
@@ -479,7 +520,7 @@ final class BluetoothController: NSObject, ObservableObject {
             self.append("\(name): link up on its own \(self.elapsed(id))")
             self.setState(.connected, for: id); return
         }
-        let r = device.openConnection(nil, withPageTimeout: Tuning.probePageTimeout, authenticationRequired: true)
+        let r = self.boundedOpen(device, timeout: Tuning.probeWait)
         if device.isConnected() {
             self.append("\(name): connected via openConnection after pairing \(self.elapsed(id))")
             self.setState(.connected, for: id); return

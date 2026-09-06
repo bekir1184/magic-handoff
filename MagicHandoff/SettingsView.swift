@@ -94,6 +94,8 @@ struct SettingsView: View {
             Section("Behavior") {
                 Toggle("Hand off peripherals to the other Mac when this Mac goes to sleep",
                        isOn: $settings.handoffOnSleep)
+                Toggle("Take them back when this Mac wakes up", isOn: $settings.takeBackOnWake)
+                    .disabled(!settings.handoffOnSleep)
                 Toggle("Flash the keyboard's Caps Lock light when a handoff completes", isOn: $settings.capsLockAnimations)
                 if settings.capsLockAnimations, !inputMonitoringGranted {
                     InputMonitoringBanner(onRecheck: { inputMonitoringGranted = CapsLockIndicator.inputMonitoringGranted })
