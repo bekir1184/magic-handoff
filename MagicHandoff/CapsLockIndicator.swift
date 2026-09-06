@@ -159,9 +159,9 @@ final class CapsLockIndicator {
                 return
             }
             let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "?"
-            var report: [UInt8] = [0x02]
+            var report: [UInt8] = [0x01, 0x02]
             let r = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 1, &report, report.count)
-            self.logger?("Caps Lock LED test: \(name) opened, LED on → \(Self.hex(r))")
+            self.logger?("Caps Lock LED test: \(name) opened, LED on [01 02] → \(Self.hex(r))")
             DispatchQueue.main.async { completion(r == kIOReturnSuccess) }
         }
     }
@@ -177,7 +177,9 @@ final class CapsLockIndicator {
 
     private func setLED(_ on: Bool) {
         guard let device = keyboardDevice() else { return }
-        var report: [UInt8] = [on ? 0x02 : 0x00]   // bit 1 = Caps Lock (LED usage 0x02)
+        // Numbered report: the buffer carries the report ID itself, then the LED
+        // bits (bit 1 = Caps Lock). Without the ID byte the keyboard ignores it.
+        var report: [UInt8] = [0x01, on ? 0x02 : 0x00]
         let r = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 1, &report, report.count)
         if r != kIOReturnSuccess {
             cachedDevice = nil
