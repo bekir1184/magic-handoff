@@ -19,6 +19,8 @@ final class AppSettings: ObservableObject {
     /// Fast switching: release by closing the link and keep the pairing on both
     /// Macs, so the next take is a plain connect instead of a fresh pairing.
     @Published var keepBonds: Bool { didSet { defaults.set(keepBonds, forKey: "keepBonds") } }
+    /// Animate the keyboard's Caps Lock LED during and after a handoff.
+    @Published var capsLockAnimations: Bool { didSet { defaults.set(capsLockAnimations, forKey: "capsLockAnimations") } }
 
     /// Stable random identity of this Mac, generated once.
     let thisMacID: String
@@ -31,6 +33,7 @@ final class AppSettings: ObservableObject {
         peerName = defaults.string(forKey: "peerName")
         handoffOnSleep = defaults.object(forKey: "handoffOnSleep") as? Bool ?? true
         keepBonds = defaults.object(forKey: "keepBonds") as? Bool ?? false
+        capsLockAnimations = defaults.object(forKey: "capsLockAnimations") as? Bool ?? true
         if let id = defaults.string(forKey: "thisMacID") {
             thisMacID = id
         } else {

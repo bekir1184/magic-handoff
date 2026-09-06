@@ -22,6 +22,7 @@ final class HandoffCoordinator: ObservableObject {
     let peers: PeerService
 
     private let sleepMonitor = SleepMonitor()
+    let capsLock = CapsLockIndicator()
     private var pingTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
 
@@ -31,6 +32,12 @@ final class HandoffCoordinator: ObservableObject {
         self.peers = PeerService(settings: settings)
 
         peers.logger = { [weak bluetooth] line in bluetooth?.appendLog(line) }
+        capsLock.logger = { [weak bluetooth] line in bluetooth?.appendLog(line) }
+        capsLock.enabled = settings.capsLockAnimations
+        settings.$capsLockAnimations
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] on in self?.capsLock.enabled = on }
+            .store(in: &cancellables)
         bluetooth.keepBonds = settings.keepBonds
         settings.$keepBonds
             .receive(on: DispatchQueue.main)
@@ -124,6 +131,7 @@ final class HandoffCoordinator: ObservableObject {
         busy = true
         lastError = nil
         let started = Date()
+        if infos.contains(where: { $0.kind == Peripheral.Kind.keyboard.rawValue }) { capsLock.playGoodbye() }
         // Release first (it is near-instant), then tell the peer. A pairing attempt
         // that starts while the device is still linked here fails with "no connection".
         releaseAll(infos.map(\.id)) { [weak self] results in
@@ -185,26 +193,39 @@ final class HandoffCoordinator: ObservableObject {
     private static let retryDelay: TimeInterval = 1.5
 
     private func takeWithRetry(_ ids: [String], started: Date, label: String) {
-        takeAll(ids) { [weak self] results in
+        let ordered = keyboardFirst(ids)
+        takeAll(ordered) { [weak self] results in
             guard let self else { return }
             let failed = results.filter { !$0.value }.map(\.key)
             if failed.isEmpty {
                 self.busy = false
+                self.capsLock.playConnected()
                 self.bluetooth.appendLog("\(label) \(ids.count) device(s) \(Self.since(started))")
                 return
             }
             self.bluetooth.appendLog("Retrying \(failed.count) device(s) in \(Self.retryDelay)s")
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelay) {
-                self.takeAll(failed, liftIgnoreFirst: true) { retry in
+                self.takeAll(self.keyboardFirst(failed), liftIgnoreFirst: true) { retry in
                     self.busy = false
                     let stillFailed = retry.filter { !$0.value }.count
                     if stillFailed == 0 {
+                        self.capsLock.playConnected()
                         self.bluetooth.appendLog("\(label) \(ids.count) device(s) after retry \(Self.since(started))")
                     } else {
+                        self.capsLock.stopLoading()
                         self.fail("\(stillFailed) device(s) could not be taken. Turn the device off and on, then try again.")
                     }
                 }
             }
+        }
+    }
+
+    /// The keyboard goes first so its Caps Lock LED can show progress for the rest.
+    private func keyboardFirst(_ ids: [String]) -> [String] {
+        ids.sorted { a, b in
+            let ka = bluetooth.peripherals.first { $0.id == a }?.kind == .keyboard
+            let kb = bluetooth.peripherals.first { $0.id == b }?.kind == .keyboard
+            return ka && !kb
         }
     }
 
@@ -228,6 +249,10 @@ final class HandoffCoordinator: ObservableObject {
         case "release":
             let ids = (message.devices ?? []).map(\.id)
             bluetooth.appendLog("\(message.fromName ?? "Peer") asked to release \(ids.count) device(s)")
+            let releasingKeyboard = ids.contains { id in
+                bluetooth.peripherals.first { $0.id == id }?.kind == .keyboard
+            }
+            if releasingKeyboard { capsLock.playGoodbye() }
             releaseAll(ids) { results in
                 reply(Message(type: "released", results: results))
             }
@@ -291,6 +316,11 @@ final class HandoffCoordinator: ObservableObject {
             remaining.removeFirst()
             bluetooth.take(id, liftIgnoreFirst: liftIgnoreFirst) { ok in
                 results[id] = ok
+                // Keyboard is here and others are still coming: show progress on its LED.
+                if ok, !remaining.isEmpty, self.bluetooth.peripherals.first(where: { $0.id == id })?.kind == .keyboard {
+                    self.capsLock.invalidate()   // fresh HID device after a (re)pair
+                    self.capsLock.startLoading()
+                }
                 next()
             }
         }

@@ -82,6 +82,18 @@ struct SettingsView: View {
             Section("Behavior") {
                 Toggle("Hand off peripherals to the other Mac when this Mac goes to sleep",
                        isOn: $settings.handoffOnSleep)
+                Toggle("Show progress on the keyboard's Caps Lock light", isOn: $settings.capsLockAnimations)
+                HStack {
+                    Text("Pulses while the other devices are still connecting; bounces once everything is here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Test") {
+                        handoff.capsLock.startLoading()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { handoff.capsLock.playConnected() }
+                    }
+                    .disabled(!settings.capsLockAnimations)
+                }
                 Toggle("Experimental: keep the pairing on both Macs", isOn: $settings.keepBonds)
                 Text("Off (recommended): releasing forgets the device here and the other Mac pairs it fresh, about 3–5 s. On: releasing only closes the link; this is faster for the Mac that paired last, but a Magic device that still considers itself owned refuses to pair with the other Mac.")
                     .font(.caption)

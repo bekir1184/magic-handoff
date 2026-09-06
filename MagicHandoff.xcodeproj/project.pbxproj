@@ -13,6 +13,7 @@
 		7C5E9149429ED536F1BB9CC5 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8789E2642F3F88574784AA86 /* SetupView.swift */; };
 		88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249E0137FAA0775B337B47D4 /* PeerService.swift */; };
 		91B66D1D358CE1A884615E4E /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 099CF09DE5923FE879A5BA30 /* AppSettings.swift */; };
+		9EABB1FFA81007271B72EE2C /* CapsLockIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68BCA9A4A8E5D9A5FCE3A289 /* CapsLockIndicator.swift */; };
 		C57353F6B88DB46A866E29A3 /* HandoffCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */; };
 		C6EA3AF35F6DF7726E0BC925 /* BluetoothController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36E7DA6257A2BA2018AC97A /* BluetoothController.swift */; };
 		EBE483ADC846AF55BE31A833 /* MagicHandoffApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E950718482CCCD5E4398AF /* MagicHandoffApp.swift */; };
@@ -27,6 +28,7 @@
 		3A13DDF06F44B1278A70A1EB /* MagicHandoff.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MagicHandoff.entitlements; sourceTree = "<group>"; };
 		429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffCoordinator.swift; sourceTree = "<group>"; };
 		6212514326A7093BE1917A86 /* Peripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Peripheral.swift; sourceTree = "<group>"; };
+		68BCA9A4A8E5D9A5FCE3A289 /* CapsLockIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapsLockIndicator.swift; sourceTree = "<group>"; };
 		7226F2ECBB07CC0C148EBCEB /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		8789E2642F3F88574784AA86 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		8C6A3D412D96C660A6243333 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -51,6 +53,7 @@
 			children = (
 				099CF09DE5923FE879A5BA30 /* AppSettings.swift */,
 				F36E7DA6257A2BA2018AC97A /* BluetoothController.swift */,
+				68BCA9A4A8E5D9A5FCE3A289 /* CapsLockIndicator.swift */,
 				429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */,
 				8C6A3D412D96C660A6243333 /* Info.plist */,
 				3A13DDF06F44B1278A70A1EB /* MagicHandoff.entitlements */,
@@ -155,6 +158,7 @@
 			files = (
 				91B66D1D358CE1A884615E4E /* AppSettings.swift in Sources */,
 				C6EA3AF35F6DF7726E0BC925 /* BluetoothController.swift in Sources */,
+				9EABB1FFA81007271B72EE2C /* CapsLockIndicator.swift in Sources */,
 				C57353F6B88DB46A866E29A3 /* HandoffCoordinator.swift in Sources */,
 				EBE483ADC846AF55BE31A833 /* MagicHandoffApp.swift in Sources */,
 				EF03DA061C6546C75EE07C3A /* MenuContentView.swift in Sources */,
