@@ -8,7 +8,7 @@ import Combine
 /// Take = ask the peer to release and, without waiting for the answer, start
 ///        pairing here. Same overlap, from the other side.
 ///
-/// Devices are handled in parallel, and each stage is timed in the log.
+/// Releases run together (they are instant); takes run one after another. Each stage is timed in the log.
 final class HandoffCoordinator: ObservableObject {
     enum PeerStatus: Equatable { case none, offline, checking, online, codeMismatch }
 
@@ -278,16 +278,23 @@ final class HandoffCoordinator: ObservableObject {
         }
     }
 
-    /// Starts taking every device at once; pairing attempts run concurrently.
+    /// Takes the devices one after another. Pairing two devices at once looked
+    /// faster but the controller serialises pairing anyway, and the second
+    /// device's link dropped before its HID session was up — it then reconnected
+    /// on its own and macOS raised the Connection Request dialog. Sequential
+    /// pairing keeps the HID session inside the pairing connection.
     private func takeAll(_ ids: [String], liftIgnoreFirst: Bool = false, completion: @escaping ([String: Bool]) -> Void) {
-        guard !ids.isEmpty else { completion([:]); return }
         var results: [String: Bool] = [:]
-        for id in ids {
+        var remaining = ids
+        func next() {
+            guard let id = remaining.first else { completion(results); return }
+            remaining.removeFirst()
             bluetooth.take(id, liftIgnoreFirst: liftIgnoreFirst) { ok in
                 results[id] = ok
-                if results.count == ids.count { completion(results) }
+                next()
             }
         }
+        next()
     }
 
     private static func since(_ start: Date) -> String {
