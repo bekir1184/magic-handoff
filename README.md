@@ -27,7 +27,7 @@ Apple's Magic peripherals only talk to one Mac at a time. If you use a laptop an
 </p>
 
 <p align="center">
-  <img src="docs/assets/menu.png" width="358" alt="The Magic Handoff menu">
+  <img src="docs/assets/menu.png" width="359" alt="The Magic Handoff menu">
   <br>
   <sub>The menu: the other Mac's status, your devices, and Send / Take.</sub>
 </p>
