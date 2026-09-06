@@ -13,10 +13,12 @@ import Combine
 /// "searching" and a short confirmation followed by a solid light for
 /// "connected".
 ///
-/// The keyboard's only host-controllable light is the Caps Lock LED (HID output
-/// report 1, LED usage page bit 2). Writing the report lights the LED without
-/// changing the Caps Lock state; when the animation ends the LED is put back to
-/// whatever Caps Lock really is.
+/// How the LED is driven: the keyboard's event driver (AppleHIDKeyboardEventDriver)
+/// owns the Caps Lock LED and re-sends its own idea of the state whenever it
+/// feels like it, which fights a raw HID output report. Its `HIDCapsLockLED`
+/// service property ("on" / "off" / "auto") makes the driver itself hold the
+/// LED where we want it. The raw output report (report 1, LED usage bit 2)
+/// remains as a fallback when the service cannot be reached.
 final class CapsLockIndicator: ObservableObject {
     /// Mirrors what the keyboard LED was last told to do, for on-screen previews.
     @Published private(set) var ledOn = false
@@ -27,6 +29,24 @@ final class CapsLockIndicator: ObservableObject {
     var logger: ((String) -> Void)?
     var enabled = true
 
+    enum Method: String, CaseIterable {
+        /// HID output report only (needs Input Monitoring). The keyboard driver may override it.
+        case raw
+        /// Output report, with the driver's own LED handling inhibited for the duration.
+        case rawInhibit
+        /// Ask the driver to hold the LED via its HIDCapsLockLED property.
+        case driver
+
+        var label: String {
+            switch self {
+            case .raw: return "Raw report"
+            case .rawInhibit: return "Raw report + inhibit driver"
+            case .driver: return "Driver property"
+            }
+        }
+    }
+    var method: Method = .rawInhibit
+
     // MARK: - Public
 
     /// Searching: calm 1 Hz blink (500 ms on / 500 ms off) until `stopLoading()` or `playConnected()`.
@@ -36,15 +56,19 @@ final class CapsLockIndicator: ObservableObject {
             guard !self.loadingActive else { return }
             self.loadingActive = true
             self.generation += 1
+            self.resetStats()
+            self.beginTakeover()
             self.loop(generation: self.generation)
         }
     }
 
     func stopLoading() {
         queue.async {
+            let wasLoading = self.loadingActive
             self.loadingActive = false
             self.generation += 1
             self.restore()
+            if wasLoading { self.reportStats("Searching") }
         }
     }
 
@@ -62,7 +86,9 @@ final class CapsLockIndicator: ObservableObject {
                 (true, 120), (false, 250),
                 (true, 700), (false, 0),
             ]
-            self.play(pattern, generation: g) { self.restore() }
+            self.resetStats()
+            self.beginTakeover()
+            self.play(pattern, generation: g) { self.restore(); self.reportStats("Connected") }
         }
     }
 
@@ -72,6 +98,7 @@ final class CapsLockIndicator: ObservableObject {
         queue.async {
             self.generation += 1
             let g = self.generation
+            self.beginTakeover()
             self.play([(true, 300), (false, 0)], generation: g) { self.restore() }
         }
     }
@@ -85,24 +112,156 @@ final class CapsLockIndicator: ObservableObject {
         }
     }
 
+    /// Timing statistics for the last pattern, to tell our jitter from the keyboard's.
+    private var lateMax = 0.0        // how late a step fired vs its planned time (ms)
+    private var writeMax = 0.0       // longest LED write call (ms)
+    private var writeTotal = 0.0
+    private var writeCount = 0
+
+    /// While a step lasts, its state is re-sent this often so that anything else
+    /// touching the LED (the keyboard driver, the firmware) is overruled within
+    /// one interval instead of leaving a visible gap.
+    private static let holdInterval = 50
+
     private func play(_ steps: [(on: Bool, ms: Int)], generation g: Int, done: @escaping () -> Void) {
-        var remaining = steps
-        func next() {
-            guard g == self.generation else { return }
-            guard let step = remaining.first else { done(); return }
-            remaining.removeFirst()
-            self.setLED(step.on)
-            self.queue.asyncAfter(deadline: .now() + .milliseconds(step.ms)) { next() }
+        // Steps are scheduled against one fixed start time, so a slow write
+        // never pushes the following steps later.
+        let start = DispatchTime.now()
+        var offsetMs = 0
+        var pending = steps.count
+        for step in steps {
+            let planned = start + .milliseconds(offsetMs)
+            let stepStart = offsetMs
+            offsetMs += step.ms
+            queue.asyncAfter(deadline: planned) {
+                guard g == self.generation else { return }
+                let lateMs = Double(DispatchTime.now().uptimeNanoseconds - planned.uptimeNanoseconds) / 1_000_000
+                self.lateMax = max(self.lateMax, lateMs)
+                self.setLED(step.on)
+                pending -= 1
+                if pending == 0 {
+                    self.queue.asyncAfter(deadline: start + .milliseconds(offsetMs)) {
+                        guard g == self.generation else { return }
+                        done()
+                    }
+                }
+            }
+            // Re-assert the state for the rest of the step.
+            var t = stepStart + Self.holdInterval
+            while t < stepStart + step.ms - 10 {
+                let at = start + .milliseconds(t)
+                queue.asyncAfter(deadline: at) {
+                    guard g == self.generation else { return }
+                    self.reassert(step.on)
+                }
+                t += Self.holdInterval
+            }
         }
-        next()
     }
 
+    /// Same state again, without touching the on-screen mirror or the stats.
+    private func reassert(_ on: Bool) {
+        switch method {
+        case .driver:
+            if let service = keyboardService() {
+                _ = IOHIDServiceClientSetProperty(service, Self.capsLockLEDKey as CFString, (on ? "on" : "off") as CFString)
+            }
+        case .raw, .rawInhibit:
+            writeRawReport(on)
+        }
+    }
+
+    private func resetStats() { lateMax = 0; writeMax = 0; writeTotal = 0; writeCount = 0 }
+
+    private func reportStats(_ label: String) {
+        guard writeCount > 0 else { return }
+        let avg = writeTotal / Double(writeCount)
+        logger?(String(format: "%@ timing (%@): steps fired up to %.0f ms late; write avg %.1f ms, max %.0f ms (%d writes)",
+                       label, method.label, lateMax, avg, writeMax, writeCount))
+    }
+
+    /// Before an animation: with `rawInhibit`, tell the driver to keep its hands
+    /// off the LED so our reports are not overridden.
+    private func beginTakeover() {
+        guard method == .rawInhibit, let service = keyboardService() else { return }
+        _ = IOHIDServiceClientSetProperty(service, Self.capsLockLEDKey as CFString, "inhibit" as CFString)
+    }
+
+    /// Hand the LED back to macOS.
     private func restore() {
         let caps = CGEventSource.flagsState(.combinedSessionState).contains(.maskAlphaShift)
-        setLED(caps)
+        DispatchQueue.main.async { self.ledOn = caps }
+        switch method {
+        case .driver, .rawInhibit:
+            if let service = keyboardService() {
+                _ = IOHIDServiceClientSetProperty(service, Self.capsLockLEDKey as CFString, "auto" as CFString)
+            }
+            if method == .rawInhibit { writeRawReport(caps) }
+        case .raw:
+            writeRawReport(caps)
+        }
     }
 
-    // MARK: - HID
+    // MARK: - LED write
+
+    private func setLED(_ on: Bool) {
+        DispatchQueue.main.async { self.ledOn = on }
+        let t0 = DispatchTime.now()
+        switch method {
+        case .driver:
+            if let service = keyboardService() {
+                let ok = IOHIDServiceClientSetProperty(service, Self.capsLockLEDKey as CFString, (on ? "on" : "off") as CFString)
+                if ok == 0, !reportedFailure { reportedFailure = true; logger?("Caps Lock LED: driver refused the property") }
+            } else if !reportedFailure {
+                reportedFailure = true; logger?("Caps Lock LED: keyboard service not found")
+            }
+        case .raw, .rawInhibit:
+            writeRawReport(on)
+        }
+        let ms = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000
+        writeMax = max(writeMax, ms); writeTotal += ms; writeCount += 1
+    }
+
+    // MARK: - Path 1: the keyboard's event-driver service (no Input Monitoring needed)
+
+    private static let capsLockLEDKey = "HIDCapsLockLED"
+    private var eventClient: CFTypeRef?
+    private var cachedService: CFTypeRef?
+
+    private func keyboardService() -> CFTypeRef? {
+        if let s = cachedService { return s }
+        if eventClient == nil {
+            // Passive client: property access only, no event delivery.
+            eventClient = IOHIDEventSystemClientCreateWithType(kCFAllocatorDefault, 2, nil)?.takeRetainedValue()
+        }
+        guard let client = eventClient else { return nil }
+        let matching: [String: Any] = [
+            kIOHIDVendorIDKey as String: 0x4C,
+            kIOHIDPrimaryUsagePageKey as String: 0x01,
+            kIOHIDPrimaryUsageKey as String: 0x06,
+            kIOHIDTransportKey as String: "Bluetooth",
+        ]
+        IOHIDEventSystemClientSetMatching(client, matching as CFDictionary)
+        guard let services = IOHIDEventSystemClientCopyServices(client)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+        let service = services.first { s in
+            let product = IOHIDServiceClientCopyProperty(s, kIOHIDProductKey as CFString)?.takeRetainedValue() as? String ?? ""
+            return product.contains("Magic Keyboard")
+        } ?? services.first
+        cachedService = service
+        return service
+    }
+
+    /// Forgets cached handles, e.g. after the keyboard reconnects.
+    func invalidate() {
+        queue.async {
+            self.cachedService = nil
+            if let d = self.cachedDevice { IOHIDDeviceClose(d, IOOptionBits(kIOHIDOptionsTypeNone)) }
+            self.cachedDevice = nil
+            self.reportedFailure = false
+        }
+    }
+
+    // MARK: - Path 2: raw HID output report (needs Input Monitoring)
 
     private var cachedDevice: IOHIDDevice?
     private var reportedFailure = false
@@ -112,13 +271,12 @@ final class CapsLockIndicator: ObservableObject {
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         let matching: [String: Any] = [
             kIOHIDVendorIDKey as String: 0x4C,
-            kIOHIDPrimaryUsagePageKey as String: 0x01,   // Generic Desktop
-            kIOHIDPrimaryUsageKey as String: 0x06,       // Keyboard
+            kIOHIDPrimaryUsagePageKey as String: 0x01,
+            kIOHIDPrimaryUsageKey as String: 0x06,
             kIOHIDTransportKey as String: "Bluetooth",
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
         guard let set = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else { return nil }
-        // Prefer the bluetoothd-backed user device; any match will route to the keyboard.
         let device = set.first { d in
             let product = IOHIDDeviceGetProperty(d, kIOHIDProductKey as CFString) as? String ?? ""
             return product.contains("Magic Keyboard")
@@ -137,8 +295,20 @@ final class CapsLockIndicator: ObservableObject {
         return device
     }
 
-    /// Opening a keyboard needs the Input Monitoring permission. Ask for it the
-    /// first time; macOS applies a fresh grant only after the app is relaunched.
+    private func writeRawReport(_ on: Bool) {
+        guard let device = keyboardDevice() else { return }
+        // Numbered report: the buffer carries the report ID itself, then the LED bits.
+        var report: [UInt8] = [0x01, on ? 0x02 : 0x00]
+        let r = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 1, &report, report.count)
+        if r != kIOReturnSuccess {
+            cachedDevice = nil
+            if !reportedFailure {
+                reportedFailure = true
+                logger?("Caps Lock LED: write failed (\(Self.hex(r)))")
+            }
+        }
+    }
+
     private func ensureAccess() {
         if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
             _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
@@ -158,49 +328,57 @@ final class CapsLockIndicator: ObservableObject {
 
     private static func hex(_ r: IOReturn) -> String { String(format: "0x%08x", UInt32(bitPattern: r)) }
 
-    /// Step-by-step check written to the log, for the Test button.
+    // MARK: - Diagnostics (Settings → Test)
+
     func diagnose(completion: @escaping (Bool) -> Void) {
         queue.async {
+            self.cachedService = nil
+            self.cachedDevice = nil
+            self.reportedFailure = false
+            self.logger?("Caps Lock LED test: method = \(self.method.label)")
+            var serviceOK = false
+            if let service = self.keyboardService() {
+                let name = IOHIDServiceClientCopyProperty(service, kIOHIDProductKey as CFString)?.takeRetainedValue() as? String ?? "?"
+                let ok = IOHIDServiceClientSetProperty(service, Self.capsLockLEDKey as CFString, "auto" as CFString)
+                serviceOK = ok != 0
+                self.logger?("Caps Lock LED test: driver service \(name), property \(serviceOK ? "accepted" : "refused")")
+            } else {
+                self.logger?("Caps Lock LED test: driver service not found")
+            }
+            if self.method == .driver {
+                DispatchQueue.main.async { completion(serviceOK) }
+                return
+            }
             let access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
             let accessText = access == kIOHIDAccessTypeGranted ? "granted" : access == kIOHIDAccessTypeDenied ? "denied" : "not determined"
             self.logger?("Caps Lock LED test: Input Monitoring \(accessText)")
-            self.reportedFailure = false
-            self.cachedDevice = nil
             guard let device = self.keyboardDevice() else {
                 self.logger?("Caps Lock LED test: no Bluetooth Magic Keyboard could be opened. " + Self.accessHint())
                 DispatchQueue.main.async { completion(false) }
                 return
             }
             let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "?"
-            var report: [UInt8] = [0x01, 0x02]
+            var report: [UInt8] = [0x01, 0x00]
             let r = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 1, &report, report.count)
-            self.logger?("Caps Lock LED test: \(name) opened, LED on [01 02] → \(Self.hex(r))")
+            self.logger?("Caps Lock LED test: raw report to \(name) → \(Self.hex(r))")
             DispatchQueue.main.async { completion(r == kIOReturnSuccess) }
         }
     }
-
-    /// Forgets the opened device, e.g. after the keyboard disconnects.
-    func invalidate() {
-        queue.async {
-            if let d = self.cachedDevice { IOHIDDeviceClose(d, IOOptionBits(kIOHIDOptionsTypeNone)) }
-            self.cachedDevice = nil
-            self.reportedFailure = false
-        }
-    }
-
-    private func setLED(_ on: Bool) {
-        DispatchQueue.main.async { self.ledOn = on }
-        guard let device = keyboardDevice() else { return }
-        // Numbered report: the buffer carries the report ID itself, then the LED
-        // bits (bit 1 = Caps Lock). Without the ID byte the keyboard ignores it.
-        var report: [UInt8] = [0x01, on ? 0x02 : 0x00]
-        let r = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 1, &report, report.count)
-        if r != kIOReturnSuccess {
-            cachedDevice = nil
-            if !reportedFailure {
-                reportedFailure = true
-                logger?("Caps Lock LED: write failed (\(Self.hex(r)))")
-            }
-        }
-    }
 }
+
+// MARK: - IOHIDEventSystemClient (exported by IOKit, not in the public headers)
+
+@_silgen_name("IOHIDEventSystemClientCreateWithType")
+private func IOHIDEventSystemClientCreateWithType(_ allocator: CFAllocator?, _ type: Int32, _ attributes: CFDictionary?) -> Unmanaged<CFTypeRef>?
+
+@_silgen_name("IOHIDEventSystemClientSetMatching")
+private func IOHIDEventSystemClientSetMatching(_ client: CFTypeRef, _ matching: CFDictionary)
+
+@_silgen_name("IOHIDEventSystemClientCopyServices")
+private func IOHIDEventSystemClientCopyServices(_ client: CFTypeRef) -> Unmanaged<CFArray>?
+
+@_silgen_name("IOHIDServiceClientSetProperty")
+private func IOHIDServiceClientSetProperty(_ service: CFTypeRef, _ key: CFString, _ value: CFTypeRef) -> UInt8
+
+@_silgen_name("IOHIDServiceClientCopyProperty")
+private func IOHIDServiceClientCopyProperty(_ service: CFTypeRef, _ key: CFString) -> Unmanaged<CFTypeRef>?

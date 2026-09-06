@@ -34,6 +34,11 @@ final class HandoffCoordinator: ObservableObject {
         peers.logger = { [weak bluetooth] line in bluetooth?.appendLog(line) }
         capsLock.logger = { [weak bluetooth] line in bluetooth?.appendLog(line) }
         capsLock.enabled = settings.capsLockAnimations
+        capsLock.method = CapsLockIndicator.Method(rawValue: settings.capsLockLEDMethod) ?? .rawInhibit
+        settings.$capsLockLEDMethod
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] m in self?.capsLock.method = CapsLockIndicator.Method(rawValue: m) ?? .rawInhibit }
+            .store(in: &cancellables)
         settings.$capsLockAnimations
             .receive(on: DispatchQueue.main)
             .sink { [weak self] on in self?.capsLock.enabled = on }

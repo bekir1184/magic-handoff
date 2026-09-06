@@ -86,6 +86,11 @@ struct SettingsView: View {
                 Text("Pulses while the other devices are still connecting; bounces once everything is here. Needs Input Monitoring; results are written to the log in the menu.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Picker("LED method", selection: $settings.capsLockLEDMethod) {
+                    ForEach(CapsLockIndicator.Method.allCases, id: \.rawValue) { m in
+                        Text(m.label).tag(m.rawValue)
+                    }
+                }
                 HStack {
                     LEDDot(indicator: handoff.capsLock)
                     Text("Preview (dot mirrors the keyboard LED):")

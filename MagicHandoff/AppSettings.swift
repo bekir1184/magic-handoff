@@ -21,6 +21,8 @@ final class AppSettings: ObservableObject {
     @Published var keepBonds: Bool { didSet { defaults.set(keepBonds, forKey: "keepBonds") } }
     /// Animate the keyboard's Caps Lock LED during and after a handoff.
     @Published var capsLockAnimations: Bool { didSet { defaults.set(capsLockAnimations, forKey: "capsLockAnimations") } }
+    /// How the Caps Lock LED is driven; see CapsLockIndicator.Method.
+    @Published var capsLockLEDMethod: String { didSet { defaults.set(capsLockLEDMethod, forKey: "capsLockLEDMethod") } }
 
     /// Stable random identity of this Mac, generated once.
     let thisMacID: String
@@ -34,6 +36,7 @@ final class AppSettings: ObservableObject {
         handoffOnSleep = defaults.object(forKey: "handoffOnSleep") as? Bool ?? true
         keepBonds = defaults.object(forKey: "keepBonds") as? Bool ?? false
         capsLockAnimations = defaults.object(forKey: "capsLockAnimations") as? Bool ?? true
+        capsLockLEDMethod = defaults.string(forKey: "capsLockLEDMethod") ?? "rawInhibit"
         if let id = defaults.string(forKey: "thisMacID") {
             thisMacID = id
         } else {
