@@ -31,6 +31,11 @@ final class HandoffCoordinator: ObservableObject {
         self.peers = PeerService(settings: settings)
 
         peers.logger = { [weak bluetooth] line in bluetooth?.appendLog(line) }
+        bluetooth.keepBonds = settings.keepBonds
+        settings.$keepBonds
+            .receive(on: DispatchQueue.main)
+            .sink { [weak bluetooth] on in bluetooth?.keepBonds = on }
+            .store(in: &cancellables)
         peers.requestHandler = { [weak self] message, reply in self?.handle(message, reply: reply) }
 
         peers.$peers

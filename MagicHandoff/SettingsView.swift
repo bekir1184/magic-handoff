@@ -81,6 +81,10 @@ struct SettingsView: View {
             Section("Behavior") {
                 Toggle("Hand off peripherals to the other Mac when this Mac goes to sleep",
                        isOn: $settings.handoffOnSleep)
+                Toggle("Fast switching: keep the pairing on both Macs", isOn: $settings.keepBonds)
+                Text("Releasing only closes the link, so taking a device back is a plain reconnect with no pairing and no \"Connection Request\" dialog. If a device turns out to remember only one Mac, the app falls back to re-pairing on its own.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

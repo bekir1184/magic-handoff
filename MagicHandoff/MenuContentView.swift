@@ -45,7 +45,7 @@ struct MenuContentView: View {
                     onRelease: { bluetooth.release(p.id) }
                 )
                 .contextMenu {
-                    Button("Release (forget on this Mac only)") { bluetooth.release(p.id) }
+                    Button("Release on this Mac only") { bluetooth.release(p.id) }
                     Button("Remove from list") { bluetooth.forget(p.id) }
                 }
             }

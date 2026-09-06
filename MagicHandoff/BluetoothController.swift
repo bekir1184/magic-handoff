@@ -35,6 +35,13 @@ final class BluetoothController: NSObject, ObservableObject {
     private var waiters: [String: [(op: Op, callback: (Bool) -> Void)]] = [:]
     /// When the current operation on a device started, for timing in the log.
     private var opStarted: [String: Date] = [:]
+    /// Devices we let go of on purpose while keeping the bond, with the time.
+    /// If one reconnects to us inside the handoff window, we drop it again so
+    /// the other Mac can win.
+    private var releasedOnPurpose: [String: Date] = [:]
+
+    /// Whether to keep the pairing when releasing (fast switching). Set by the app.
+    var keepBonds = true
 
     private enum Tuning {
         /// `-remove` completes asynchronously inside bluetoothd; pairing right
@@ -46,6 +53,13 @@ final class BluetoothController: NSObject, ObservableObject {
         /// After pairing reports success, how long to wait for the link before
         /// nudging it with openConnection.
         static let postPairGrace: TimeInterval = 3
+        /// How long after a keep-bond release a device bouncing back to us is
+        /// pushed away again.
+        static let bounceWindow: TimeInterval = 20
+        /// Keep-bond take: how many times to retry a plain connect before giving
+        /// up on the bond and pairing from scratch.
+        static let connectAttempts = 4
+        static let connectRetryGap: TimeInterval = 0.8
         static let refreshInterval: TimeInterval = 2
         static let inquiryLength: UInt8 = 8
     }
@@ -213,25 +227,52 @@ final class BluetoothController: NSObject, ObservableObject {
         if let completion { addWaiter(id, .release, completion) }
         opStarted[id] = Date()
         setState(.releasing, for: id)
+        let keep = keepBonds
         queue.async { [weak self] in
             guard let self else { return }
             guard let device = IOBluetoothDevice(addressString: id) else {
                 self.setState(.failed("device not found"), for: id); return
             }
             let name = device.name ?? id
-            if device.responds(to: Selector(("remove"))) {
-                device.perform(Selector(("remove")))
-                self.append("\(name): bond removed (-remove) \(self.elapsed(id))")
-                self.setState(.disconnected, for: id)
-            } else {
+
+            if keep {
+                // Fast switching: drop the link, keep the pairing. The device keeps
+                // our key too, so coming back is a plain connect with no dialog.
+                DispatchQueue.main.async { self.releasedOnPurpose[id] = Date() }
+                if !device.isConnected() {
+                    self.append("\(name): already disconnected")
+                    self.setState(.disconnected, for: id); return
+                }
                 let r = device.closeConnection()
                 if r == kIOReturnSuccess {
-                    self.append("\(name): -remove unavailable, session closed with closeConnection \(self.elapsed(id))")
+                    self.append("\(name): link closed, pairing kept \(self.elapsed(id))")
                     self.setState(.disconnected, for: id)
                 } else {
-                    self.append("\(name): closeConnection failed (\(r))")
-                    self.setState(.failed("release failed \(r)"), for: id)
+                    self.append("\(name): closeConnection failed (\(r)); removing bond instead")
+                    self.removeBond(device, id: id, name: name)
                 }
+                return
+            }
+
+            self.removeBond(device, id: id, name: name)
+        }
+    }
+
+    /// Classic release: forget the device on this Mac. Runs on the Bluetooth queue.
+    private func removeBond(_ device: IOBluetoothDevice, id: String, name: String) {
+        DispatchQueue.main.async { self.releasedOnPurpose[id] = nil }
+        if device.responds(to: Selector(("remove"))) {
+            device.perform(Selector(("remove")))
+            append("\(name): bond removed (-remove) \(elapsed(id))")
+            setState(.disconnected, for: id)
+        } else {
+            let r = device.closeConnection()
+            if r == kIOReturnSuccess {
+                append("\(name): -remove unavailable, session closed with closeConnection \(elapsed(id))")
+                setState(.disconnected, for: id)
+            } else {
+                append("\(name): closeConnection failed (\(r))")
+                setState(.failed("release failed \(r)"), for: id)
             }
         }
     }
@@ -241,7 +282,9 @@ final class BluetoothController: NSObject, ObservableObject {
     func take(_ id: String, completion: ((Bool) -> Void)? = nil) {
         if let completion { addWaiter(id, .take, completion) }
         opStarted[id] = Date()
+        releasedOnPurpose[id] = nil
         setState(.taking("Connecting…"), for: id)
+        let keep = keepBonds
         queue.async { [weak self] in
             guard let self else { return }
             guard let device = IOBluetoothDevice(addressString: id) else {
@@ -254,27 +297,57 @@ final class BluetoothController: NSObject, ObservableObject {
                 self.setState(.connected, for: id); return
             }
 
-            // 1) Still bonded to us: the cheap path is a direct connect.
+            // 1) Still bonded to us: the cheap path is a direct connect. With fast
+            //    switching the device may still be letting go of the other Mac, so
+            //    retry a few times before deciding the bond is dead.
             if device.isPaired() {
-                let r = device.openConnection()
-                if device.isConnected() {
-                    self.append("\(name): connected via openConnection \(self.elapsed(id))")
-                    self.watchDisconnect(of: device, id: id)
-                    self.setState(.connected, for: id); return
-                }
-                self.append("\(name): openConnection failed (\(r)) \(self.elapsed(id)); bond is stale, removing it")
-                if device.responds(to: Selector(("remove"))) {
-                    device.perform(Selector(("remove")))
-                }
-                self.queue.asyncAfter(deadline: .now() + Tuning.unbondSettle) {
-                    self.startPairing(id: id, name: name)
-                }
+                self.connectBonded(device, id: id, name: name,
+                                   attemptsLeft: keep ? Tuning.connectAttempts : 1)
                 return
             }
 
             // 2) No bond: pair from scratch.
             self.startPairing(id: id, name: name)
         }
+    }
+
+    /// Runs on the Bluetooth queue.
+    private func connectBonded(_ device: IOBluetoothDevice, id: String, name: String, attemptsLeft: Int) {
+        // The device may have connected to us on its own in the meantime.
+        if device.isConnected() {
+            self.append("\(name): connected \(self.elapsed(id))")
+            self.watchDisconnect(of: device, id: id)
+            self.setState(.connected, for: id); return
+        }
+        let r = device.openConnection()
+        if device.isConnected() {
+            self.append("\(name): connected via openConnection \(self.elapsed(id))")
+            self.watchDisconnect(of: device, id: id)
+            self.setState(.connected, for: id); return
+        }
+        if attemptsLeft > 1 {
+            self.append("\(name): connect attempt failed (\(r)) \(self.elapsed(id)); retrying")
+            self.queue.asyncAfter(deadline: .now() + Tuning.connectRetryGap) { [weak self] in
+                guard let self, self.isStillTaking(id) else { return }
+                self.connectBonded(device, id: id, name: name, attemptsLeft: attemptsLeft - 1)
+            }
+            return
+        }
+        self.append("\(name): openConnection failed (\(r)) \(self.elapsed(id)); bond is stale, removing it")
+        if device.responds(to: Selector(("remove"))) {
+            device.perform(Selector(("remove")))
+        }
+        self.queue.asyncAfter(deadline: .now() + Tuning.unbondSettle) {
+            self.startPairing(id: id, name: name)
+        }
+    }
+
+    private func isStillTaking(_ id: String) -> Bool {
+        var taking = false
+        DispatchQueue.main.sync {
+            if case .taking = self.peripherals.first(where: { $0.id == id })?.state { taking = true }
+        }
+        return taking
     }
 
     private func startPairing(id: String, name: String) {
@@ -323,6 +396,14 @@ final class BluetoothController: NSObject, ObservableObject {
 
     @objc private func deviceDidConnect(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
         guard let id = device.addressString, known[id] != nil else { return }
+        // Fast switching: we just let this device go so the other Mac can have it,
+        // and it came straight back. Push it away again; the other Mac is paging.
+        if let released = releasedOnPurpose[id], Date().timeIntervalSince(released) < Tuning.bounceWindow {
+            let name = device.name ?? id
+            append("\(name): came back after release; closing again so the other Mac can take it")
+            queue.async { _ = device.closeConnection() }
+            return
+        }
         watchDisconnect(of: device, id: id)
         let wasTaking: Bool = {
             if case .taking = peripherals.first(where: { $0.id == id })?.state { return true }

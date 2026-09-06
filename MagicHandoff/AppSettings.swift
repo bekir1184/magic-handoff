@@ -16,6 +16,9 @@ final class AppSettings: ObservableObject {
     @Published var peerID: String? { didSet { defaults.set(peerID, forKey: "peerID") } }
     @Published var peerName: String? { didSet { defaults.set(peerName, forKey: "peerName") } }
     @Published var handoffOnSleep: Bool { didSet { defaults.set(handoffOnSleep, forKey: "handoffOnSleep") } }
+    /// Fast switching: release by closing the link and keep the pairing on both
+    /// Macs, so the next take is a plain connect instead of a fresh pairing.
+    @Published var keepBonds: Bool { didSet { defaults.set(keepBonds, forKey: "keepBonds") } }
 
     /// Stable random identity of this Mac, generated once.
     let thisMacID: String
@@ -27,6 +30,7 @@ final class AppSettings: ObservableObject {
         peerID = defaults.string(forKey: "peerID")
         peerName = defaults.string(forKey: "peerName")
         handoffOnSleep = defaults.object(forKey: "handoffOnSleep") as? Bool ?? true
+        keepBonds = defaults.object(forKey: "keepBonds") as? Bool ?? true
         if let id = defaults.string(forKey: "thisMacID") {
             thisMacID = id
         } else {
