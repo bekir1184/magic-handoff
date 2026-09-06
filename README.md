@@ -21,15 +21,17 @@
 Apple's Magic peripherals only talk to one Mac at a time. If you use a laptop and a desktop, or a work Mac and a personal one, every switch means digging through Bluetooth settings on both machines or plugging in a cable. Magic Handoff makes the switch a single keystroke: press **⌘⇧2** on the keyboard and it, along with the trackpad and mouse, hops to your other Mac. Press **⌘⇧1** there to bring everything back.
 
 <p align="center">
-  <img src="docs/assets/caps-lock.gif" width="560" alt="The Caps Lock light confirming a handoff">
-  <br>
-  <sub>Optional: the keyboard's Caps Lock light confirms each device as it arrives.</sub>
-</p>
-
-<p align="center">
   <img src="docs/assets/menu.png" width="359" alt="The Magic Handoff menu">
   <br>
   <sub>The menu: the other Mac's status, your devices, and Send / Take.</sub>
+</p>
+
+## Keyboard light
+
+Turn it on in Settings and the keyboard itself tells you when a device has landed: two short pulses and a long flash on the Caps Lock light as each device connects and becomes usable. No need to look at the screen.
+
+<p align="center">
+  <img src="docs/assets/caps-lock.gif" width="560" alt="The Caps Lock light confirming a handoff">
 </p>
 
 ## Features
