@@ -24,6 +24,9 @@ struct Message: Codable {
     var error: String?
     /// The sender's hotkey number (1 or 2), carried in pong so both Macs can spot a clash.
     var hotkey: Int?
+    /// Whether the sender's display is asleep, carried in pong. A Mac whose
+    /// display is off has nobody at it, so it is no place to send devices.
+    var displayAsleep: Bool?
 }
 
 struct Peer: Identifiable, Equatable {

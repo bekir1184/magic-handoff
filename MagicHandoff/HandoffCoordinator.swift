@@ -19,6 +19,8 @@ final class HandoffCoordinator: ObservableObject {
     @Published var lastError: String?
     /// Hotkey number the other Mac reports, if any.
     @Published private(set) var peerHotkey: Int?
+    /// Whether the other Mac's display is asleep, as of the last ping.
+    @Published private(set) var peerDisplayAsleep: Bool?
 
     let bluetooth: BluetoothController
     let settings: AppSettings
@@ -167,6 +169,7 @@ final class HandoffCoordinator: ObservableObject {
                 self.peerStatus = .online
                 self.peerDevices = reply.devices ?? []
                 self.peerHotkey = reply.hotkey
+                self.peerDisplayAsleep = reply.displayAsleep
                 if let h = reply.hotkey, h == self.settings.thisMacHotkey {
                     self.lastError = "Both Macs use ⌘⇧\(h). Give one of them the other number in Settings."
                 } else if self.lastError?.hasPrefix("Both Macs use") == true {
@@ -264,16 +267,20 @@ final class HandoffCoordinator: ObservableObject {
 
     /// Give the device a moment to notice the unbond and enter pairing mode.
     private static let postReleaseSettle: TimeInterval = 0.4
+    /// After promoting a dark wake to a full wake, how long Bluetooth needs before pairing.
+    private static let wakeSettle: TimeInterval = 2.5
     /// Pause before the automatic second attempt.
     private static let retryDelay: TimeInterval = 1.5
 
     private func takeWithRetry(_ ids: [String], started: Date, label: String, freshlyReleased: Bool = false) {
         loadingStartedAt = nil
         let ordered = keyboardFirst(ids)
+        let awake = PowerAssertion.holdAwake(reason: "Magic Handoff: handoff in progress")
         takeAll(ordered, freshlyReleased: freshlyReleased) { [weak self] results in
-            guard let self else { return }
+            guard let self else { PowerAssertion.release(awake); return }
             let failed = results.filter { !$0.value }.map(\.key)
             if failed.isEmpty {
+                PowerAssertion.release(awake)
                 self.busy = false
                 self.playConnectedAfterMinimumLoading()
                 self.bluetooth.appendLog("\(label) \(ids.count) device(s) \(Self.since(started))")
@@ -282,6 +289,7 @@ final class HandoffCoordinator: ObservableObject {
             self.bluetooth.appendLog("Retrying \(failed.count) device(s) in \(Self.retryDelay)s")
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelay) {
                 self.takeAll(self.keyboardFirst(failed), liftIgnoreFirst: true) { retry in
+                    PowerAssertion.release(awake)
                     self.busy = false
                     let stillFailed = retry.filter { !$0.value }.count
                     if stillFailed == 0 {
@@ -356,7 +364,8 @@ final class HandoffCoordinator: ObservableObject {
     private func handle(_ message: Message, reply: @escaping (Message) -> Void) {
         switch message.type {
         case "ping":
-            reply(Message(type: "pong", devices: bluetooth.deviceInfos(), hotkey: settings.thisMacHotkey))
+            reply(Message(type: "pong", devices: bluetooth.deviceInfos(), hotkey: settings.thisMacHotkey,
+                          displayAsleep: PowerAssertion.displayIsAsleep))
 
         case "release":
             let ids = (message.devices ?? []).map(\.id)
@@ -373,7 +382,15 @@ final class HandoffCoordinator: ObservableObject {
             bluetooth.appendLog("\(message.fromName ?? "Peer") handed over \(infos.count) device(s); taking them")
             busy = true
             let started = Date()
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.postReleaseSettle) { [weak self] in
+            // A dark-woken Mac (lid closed, display off) answers on the network but
+            // cannot pair. Wake it fully first and give Bluetooth a moment.
+            var settle = Self.postReleaseSettle
+            if PowerAssertion.displayIsAsleep {
+                bluetooth.appendLog("Display is off: waking this Mac before pairing")
+                PowerAssertion.wakeUp(reason: "Magic Handoff: receiving devices")
+                settle = Self.wakeSettle
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in
                 self?.takeWithRetry(infos.map(\.id), started: started, label: "Received", freshlyReleased: true)
             }
 
@@ -384,22 +401,50 @@ final class HandoffCoordinator: ObservableObject {
 
     // MARK: - Sleep
 
+    /// Sleep hands the devices over only when somebody is actually at the other
+    /// Mac. If its display is off too, the devices would land on a sleeping Mac
+    /// and its monitor would light up for nobody — and once both Macs are idle
+    /// they would keep waking each other. So they stay here instead.
     private func handleSleep(done: @escaping () -> Void) {
-        guard settings.handoffOnSleep,
-              selectedPeer != nil,
-              bluetooth.peripherals.contains(where: { $0.state == .connected }) else {
-            done(); return
-        }
-        let ids = bluetooth.peripherals.filter { $0.state == .connected }.map(\.id)
-        bluetooth.appendLog("Going to sleep: handing \(ids.count) device(s) to \(peerName)")
         var called = false
         let finish = { if !called { called = true; done() } }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { finish() }
-        send(ids) { [weak self] ok in
-            if ok { self?.handedOffOnSleep = ids }
-            finish()
+        guard settings.handoffOnSleep,
+              let peer = selectedPeer,
+              bluetooth.peripherals.contains(where: { $0.state == .connected }) else {
+            finish(); return
+        }
+        // Never block the sleep transition for long, whatever happens below.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.sleepBudget) { finish() }
+
+        // Ask now rather than trust the last ping: the answer decides whether
+        // anything moves at all.
+        peers.request(Message(type: "ping"), to: peer, timeout: Self.sleepPingTimeout) { [weak self] result in
+            guard let self else { finish(); return }
+            switch result {
+            case .failure(let error):
+                self.bluetooth.appendLog("Going to sleep: \(peer.name) did not answer (\(error.localizedDescription)); leaving the devices here")
+                finish()
+            case .success(let reply):
+                self.peerDisplayAsleep = reply.displayAsleep
+                if reply.displayAsleep == true {
+                    self.bluetooth.appendLog("Going to sleep: \(peer.name) is asleep as well; leaving the devices here")
+                    finish()
+                    return
+                }
+                let ids = self.bluetooth.peripherals.filter { $0.state == .connected }.map(\.id)
+                self.bluetooth.appendLog("Going to sleep: handing \(ids.count) device(s) to \(peer.name)")
+                self.send(ids) { ok in
+                    if ok { self.handedOffOnSleep = ids }
+                    finish()
+                }
+            }
         }
     }
+
+    /// How long the sleep transition may be held while the handoff runs. Well
+    /// inside the system's power-handler watchdog.
+    private static let sleepBudget: TimeInterval = 10
+    private static let sleepPingTimeout: TimeInterval = 3
 
     /// Devices handed to the other Mac because this Mac went to sleep; taken
     /// back on wake when the option is on. Persisted in case the app restarts.
