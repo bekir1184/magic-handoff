@@ -187,6 +187,8 @@ final class CapsLockIndicator: ObservableObject {
 
     private func reportStats(_ label: String) {
         guard writeCount > 0 else { return }
+        // Routine runs are silent; only report timing that could be visible.
+        guard lateMax > 250 || writeMax > 100 else { return }
         let avg = writeTotal / Double(writeCount)
         logger?(String(format: "%@ timing (%@): steps fired up to %.0f ms late; write avg %.1f ms, max %.0f ms (%d writes)",
                        label, method.label, lateMax, avg, writeMax, writeCount))

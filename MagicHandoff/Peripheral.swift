@@ -47,3 +47,17 @@ struct Peripheral: Identifiable, Equatable {
     var isPaired: Bool
     var state: State
 }
+
+
+extension String {
+    /// Canonical Bluetooth address, e.g. "1C:1D:D3:7A:11:F1". IOBluetooth spells
+    /// addresses inconsistently ("-" or ":", either case) while accepting both,
+    /// so every address the app stores or compares goes through this. Two
+    /// spellings of one device used to become two entries, one of them stuck on
+    /// "Not connected".
+    var canonicalBluetoothAddress: String {
+        let hex = Array(uppercased().filter { $0.isHexDigit })
+        guard hex.count == 12 else { return uppercased() }
+        return stride(from: 0, to: 12, by: 2).map { String(hex[$0...$0 + 1]) }.joined(separator: ":")
+    }
+}

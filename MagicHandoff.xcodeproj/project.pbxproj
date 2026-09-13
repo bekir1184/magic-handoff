@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		028E250F8DE9AD04B81F07F6 /* MenuIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A807C02F4C1204ACB654FAB3 /* MenuIcon.swift */; };
 		08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C270C603176F934C2E500FEE /* SettingsView.swift */; };
+		0C961C08BCED304746D1C2AE /* PowerAssertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297C505AA86ADF8A5B56E818 /* PowerAssertion.swift */; };
 		1179067C32848324364D6443 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B5A20D370E9E9F7EC5D8B93 /* OnboardingView.swift */; };
 		26D41199668DB9AD9F3ADAC8 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF873B41268D49BE6AC8218 /* AppContainer.swift */; };
 		40448AD41E142D2883D8D6A7 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 7226F2ECBB07CC0C148EBCEB /* AppIcon.icns */; };
@@ -29,6 +30,7 @@
 		099CF09DE5923FE879A5BA30 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		148276FD3834B493CD92DB77 /* MagicHandoff.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MagicHandoff.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		249E0137FAA0775B337B47D4 /* PeerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerService.swift; sourceTree = "<group>"; };
+		297C505AA86ADF8A5B56E818 /* PowerAssertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerAssertion.swift; sourceTree = "<group>"; };
 		3A13DDF06F44B1278A70A1EB /* MagicHandoff.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MagicHandoff.entitlements; sourceTree = "<group>"; };
 		429DB75152C4D4DD83ED9C56 /* HandoffCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffCoordinator.swift; sourceTree = "<group>"; };
 		6212514326A7093BE1917A86 /* Peripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Peripheral.swift; sourceTree = "<group>"; };
@@ -73,6 +75,7 @@
 				9B5A20D370E9E9F7EC5D8B93 /* OnboardingView.swift */,
 				249E0137FAA0775B337B47D4 /* PeerService.swift */,
 				6212514326A7093BE1917A86 /* Peripheral.swift */,
+				297C505AA86ADF8A5B56E818 /* PowerAssertion.swift */,
 				C270C603176F934C2E500FEE /* SettingsView.swift */,
 				8789E2642F3F88574784AA86 /* SetupView.swift */,
 				AFF173F385ACF42B7932F955 /* SleepMonitor.swift */,
@@ -180,6 +183,7 @@
 				1179067C32848324364D6443 /* OnboardingView.swift in Sources */,
 				88C2DBC3C9F86614F59DB713 /* PeerService.swift in Sources */,
 				67310F62B5E86C758CF4E1D2 /* Peripheral.swift in Sources */,
+				0C961C08BCED304746D1C2AE /* PowerAssertion.swift in Sources */,
 				08EFABFCE9405F8BC01395AA /* SettingsView.swift in Sources */,
 				7C5E9149429ED536F1BB9CC5 /* SetupView.swift in Sources */,
 				F9BC46BE5C4F76F676A87B70 /* SleepMonitor.swift in Sources */,

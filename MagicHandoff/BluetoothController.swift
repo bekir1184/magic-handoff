@@ -88,7 +88,7 @@ final class BluetoothController: NSObject, ObservableObject {
     override init() {
         super.init()
         loadKnown()
-        ignoredByUs = Set(UserDefaults.standard.stringArray(forKey: Self.ignoredKey) ?? [])
+        ignoredByUs = Set((UserDefaults.standard.stringArray(forKey: Self.ignoredKey) ?? []).map { $0.canonicalBluetoothAddress })
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             self?.unignoreAll()
         }
@@ -123,13 +123,32 @@ final class BluetoothController: NSObject, ObservableObject {
         guard started else { return }
         queue.async { [weak self] in
             guard let self else { return }
-            let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
-            let snapshot: [LiveDevice] = devices.compactMap { d in
-                guard let addr = d.addressString else { return nil }
+            let ids = Set(self.knownIDs)
+            var snapshot: [LiveDevice] = []
+            var seen = Set<String>()
+
+            // 1) Discovery: devices paired here that look like Magic input devices.
+            //    A device we already know stays in regardless of what its class of
+            //    device says — right after a pairing it can still read as 0.
+            for d in (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? [] {
+                guard let raw = d.addressString else { continue }
+                let id = raw.canonicalBluetoothAddress
                 let kind = Self.kind(of: d)
-                guard kind != .other else { return nil }   // HID input devices only
-                return LiveDevice(id: addr, name: d.name ?? addr, kind: kind, paired: d.isPaired(), connected: d.isConnected())
+                guard ids.contains(id) || kind != .other else { continue }
+                snapshot.append(LiveDevice(id: id, name: d.name ?? id, kind: kind,
+                                           paired: d.isPaired(), connected: d.isConnected()))
+                seen.insert(id)
             }
+
+            // 2) Known devices missing from that list (bond removed, or the list
+            //    is briefly stale): ask about each one directly, so a device that
+            //    is connected here can never read as disconnected.
+            for id in ids where !seen.contains(id) {
+                guard let d = IOBluetoothDevice(addressString: id) else { continue }
+                snapshot.append(LiveDevice(id: id, name: d.name ?? id, kind: Self.kind(of: d),
+                                           paired: d.isPaired(), connected: d.isConnected()))
+            }
+
             DispatchQueue.main.async {
                 self.merge(snapshot)
             }
@@ -143,14 +162,21 @@ final class BluetoothController: NSObject, ObservableObject {
     private func merge(_ snapshot: [LiveDevice]) {
         // A device whose bond was removed drops out of pairedDevices(); keep every
         // device we have ever seen so its "Take" button stays available.
-        for s in snapshot { known[s.id] = KnownDevice(name: s.name, kind: s.kind) }
+        for s in snapshot {
+            // A momentarily empty class of device or name must not overwrite what
+            // we already know about the device.
+            let kind = s.kind == .other ? (known[s.id]?.kind ?? s.kind) : s.kind
+            let name = s.name == s.id ? (known[s.id]?.name ?? s.name) : s.name
+            known[s.id] = KnownDevice(name: name, kind: kind)
+        }
         saveKnown()
 
         var next: [Peripheral] = []
         for (id, k) in known {
             let live = snapshot.first { $0.id == id }
             if var existing = peripherals.first(where: { $0.id == id }) {
-                existing.name = live?.name ?? k.name
+                existing.name = k.name
+                existing.kind = k.kind
                 existing.isPaired = live?.paired ?? false
                 if !existing.state.isBusy {
                     if live?.connected == true {
@@ -161,7 +187,7 @@ final class BluetoothController: NSObject, ObservableObject {
                 }
                 next.append(existing)
             } else {
-                next.append(Peripheral(id: id, name: live?.name ?? k.name, kind: k.kind,
+                next.append(Peripheral(id: id, name: k.name, kind: k.kind,
                                        isPaired: live?.paired ?? false,
                                        state: live?.connected == true ? .connected : .disconnected))
             }
@@ -216,6 +242,7 @@ final class BluetoothController: NSObject, ObservableObject {
 
     /// Removes the device from the persistent list (does not touch the bond).
     func forget(_ id: String) {
+        let id = id.canonicalBluetoothAddress
         known.removeValue(forKey: id)
         saveKnown()
         peripherals.removeAll { $0.id == id }
@@ -233,13 +260,27 @@ final class BluetoothController: NSObject, ObservableObject {
     private var known: [String: KnownDevice] = [:]
     private static let knownKey = "knownPeripherals"
 
+    /// `known` is written on the main queue, but the Bluetooth queue has to read
+    /// the id list while building a snapshot, so a copy is kept behind a lock.
+    private let knownIDsLock = NSLock()
+    private var knownIDsCopy: [String] = []
+    private var knownIDs: [String] {
+        knownIDsLock.lock(); defer { knownIDsLock.unlock() }
+        return knownIDsCopy
+    }
+
     private func loadKnown() {
         guard let data = UserDefaults.standard.data(forKey: Self.knownKey),
               let decoded = try? JSONDecoder().decode([String: KnownDevice].self, from: data) else { return }
-        known = decoded
+        // Earlier builds stored whatever spelling IOBluetooth handed back.
+        known = Dictionary(decoded.map { ($0.key.canonicalBluetoothAddress, $0.value) },
+                           uniquingKeysWith: { a, b in a.kind == .other ? b : a })
+        knownIDsCopy = Array(known.keys)
+        if known.count != decoded.count { saveKnown() }
     }
 
     private func saveKnown() {
+        knownIDsLock.lock(); knownIDsCopy = Array(known.keys); knownIDsLock.unlock()
         if let data = try? JSONEncoder().encode(known) {
             UserDefaults.standard.set(data, forKey: Self.knownKey)
         }
@@ -250,7 +291,8 @@ final class BluetoothController: NSObject, ObservableObject {
     func appendLog(_ line: String) { append(line) }
 
     func deviceInfo(_ id: String) -> DeviceInfo? {
-        peripherals.first { $0.id == id }.map {
+        let id = id.canonicalBluetoothAddress
+        return peripherals.first { $0.id == id }.map {
             DeviceInfo(id: $0.id, name: $0.name, kind: $0.kind.rawValue, connected: $0.state == .connected)
         }
     }
@@ -261,11 +303,12 @@ final class BluetoothController: NSObject, ObservableObject {
 
     /// Adds a device announced by the other Mac so it can be taken here. Main queue only.
     func ensureKnown(_ info: DeviceInfo) {
-        guard known[info.id] == nil else { return }
+        let id = info.id.canonicalBluetoothAddress
+        guard known[id] == nil else { return }
         let kind = Peripheral.Kind(rawValue: info.kind) ?? .other
-        known[info.id] = KnownDevice(name: info.name, kind: kind)
+        known[id] = KnownDevice(name: info.name, kind: kind)
         saveKnown()
-        peripherals.append(Peripheral(id: info.id, name: info.name, kind: kind, isPaired: false, state: .disconnected))
+        peripherals.append(Peripheral(id: id, name: info.name, kind: kind, isPaired: false, state: .disconnected))
         peripherals.sort { $0.name < $1.name }
     }
 
@@ -308,6 +351,7 @@ final class BluetoothController: NSObject, ObservableObject {
     // MARK: - Release
 
     func release(_ id: String, completion: ((Bool) -> Void)? = nil) {
+        let id = id.canonicalBluetoothAddress
         if let completion { addWaiter(id, .release, completion) }
         opStarted[id] = Date()
         setState(.releasing, for: id)
@@ -387,6 +431,7 @@ final class BluetoothController: NSObject, ObservableObject {
     ///   bond, so the device is unowned and in pairing mode. Any bond we still
     ///   hold is stale by definition; skip the connect probe and pair directly.
     func take(_ id: String, liftIgnoreFirst: Bool = false, freshlyReleased: Bool = false, completion: ((Bool) -> Void)? = nil) {
+        let id = id.canonicalBluetoothAddress
         if let completion { addWaiter(id, .take, completion) }
         opStarted[id] = Date()
         releasedOnPurpose[id] = nil
@@ -579,7 +624,7 @@ final class BluetoothController: NSObject, ObservableObject {
     // MARK: - Link notifications (instant state instead of polling)
 
     @objc private func deviceDidConnect(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
-        guard let id = device.addressString, known[id] != nil else { return }
+        guard let id = device.addressString?.canonicalBluetoothAddress, known[id] != nil else { return }
         // Fast switching: we just let this device go so the other Mac can have it,
         // and it came straight back. Push it away again; the other Mac is paging.
         if let released = releasedOnPurpose[id], Date().timeIntervalSince(released) < Tuning.bounceWindow {
@@ -598,7 +643,7 @@ final class BluetoothController: NSObject, ObservableObject {
     }
 
     @objc private func deviceDidDisconnect(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
-        guard let id = device.addressString else { return }
+        guard let id = device.addressString?.canonicalBluetoothAddress else { return }
         disconnectNotifications[id]?.unregister()
         disconnectNotifications[id] = nil
         // A disconnect during a take is part of the dance (unbond, re-pair); only
@@ -692,7 +737,7 @@ extension BluetoothController {
 
     @objc func devicePairingConnecting(_ sender: Any!) {
         guard let pair = sender as? IOBluetoothDevicePair, let d = pair.device() else { return }
-        setState(.taking("Establishing link…"), for: d.addressString ?? "")
+        setState(.taking("Establishing link…"), for: d.addressString?.canonicalBluetoothAddress ?? "")
     }
 
     @objc func devicePairingUserConfirmationRequest(_ sender: Any!, numericValue: BluetoothNumericValue) {
@@ -708,7 +753,7 @@ extension BluetoothController {
     }
 
     @objc func devicePairingFinished(_ sender: Any!, error: IOReturn) {
-        guard let pair = sender as? IOBluetoothDevicePair, let d = pair.device(), let id = d.addressString else { return }
+        guard let pair = sender as? IOBluetoothDevicePair, let d = pair.device(), let id = d.addressString?.canonicalBluetoothAddress else { return }
         let name = d.name ?? id
         DispatchQueue.main.async {
             guard self.pendingPairs[id] === pair else { return }   // stale / cancelled attempt
@@ -748,7 +793,8 @@ extension BluetoothController {
 
 extension BluetoothController: IOBluetoothDeviceInquiryDelegate {
     func deviceInquiryDeviceFound(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!) {
-        guard let device, let addr = device.addressString else { return }
+        guard let device, let raw = device.addressString else { return }
+        let addr = raw.canonicalBluetoothAddress
         let kind = Self.kind(of: device)
         guard kind != .other else { return }
         let name = device.name ?? addr

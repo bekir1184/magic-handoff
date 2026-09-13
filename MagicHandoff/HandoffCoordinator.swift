@@ -264,16 +264,20 @@ final class HandoffCoordinator: ObservableObject {
 
     /// Give the device a moment to notice the unbond and enter pairing mode.
     private static let postReleaseSettle: TimeInterval = 0.4
+    /// After promoting a dark wake to a full wake, how long Bluetooth needs before pairing.
+    private static let wakeSettle: TimeInterval = 2.5
     /// Pause before the automatic second attempt.
     private static let retryDelay: TimeInterval = 1.5
 
     private func takeWithRetry(_ ids: [String], started: Date, label: String, freshlyReleased: Bool = false) {
         loadingStartedAt = nil
         let ordered = keyboardFirst(ids)
+        let awake = PowerAssertion.holdAwake(reason: "Magic Handoff: handoff in progress")
         takeAll(ordered, freshlyReleased: freshlyReleased) { [weak self] results in
-            guard let self else { return }
+            guard let self else { PowerAssertion.release(awake); return }
             let failed = results.filter { !$0.value }.map(\.key)
             if failed.isEmpty {
+                PowerAssertion.release(awake)
                 self.busy = false
                 self.playConnectedAfterMinimumLoading()
                 self.bluetooth.appendLog("\(label) \(ids.count) device(s) \(Self.since(started))")
@@ -282,6 +286,7 @@ final class HandoffCoordinator: ObservableObject {
             self.bluetooth.appendLog("Retrying \(failed.count) device(s) in \(Self.retryDelay)s")
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelay) {
                 self.takeAll(self.keyboardFirst(failed), liftIgnoreFirst: true) { retry in
+                    PowerAssertion.release(awake)
                     self.busy = false
                     let stillFailed = retry.filter { !$0.value }.count
                     if stillFailed == 0 {
@@ -373,7 +378,15 @@ final class HandoffCoordinator: ObservableObject {
             bluetooth.appendLog("\(message.fromName ?? "Peer") handed over \(infos.count) device(s); taking them")
             busy = true
             let started = Date()
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.postReleaseSettle) { [weak self] in
+            // A dark-woken Mac (lid closed, display off) answers on the network but
+            // cannot pair. Wake it fully first and give Bluetooth a moment.
+            var settle = Self.postReleaseSettle
+            if PowerAssertion.displayIsAsleep {
+                bluetooth.appendLog("Display is off: waking this Mac before pairing")
+                PowerAssertion.wakeUp(reason: "Magic Handoff: receiving devices")
+                settle = Self.wakeSettle
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in
                 self?.takeWithRetry(infos.map(\.id), started: started, label: "Received", freshlyReleased: true)
             }
 
