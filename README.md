@@ -38,7 +38,7 @@ Turn it on in Settings and the keyboard itself tells you when a device has lande
 
 - **One keystroke** — ⌘⇧1 and ⌘⇧2 stand for your two Macs. Press the other Mac's key to send everything there; press this Mac's key to bring everything back. Pressing the key of the Mac that already has the devices does nothing.
 - **Menu bar status** — the dot in the menu bar icon turns green when every device is on this Mac. Send or take individual devices from the menu.
-- **Sleep aware** — close the lid and the devices move to your other Mac; open it and they come back.
+- **Sleep aware** — close the lid and the devices move to your other Mac, but only when someone is actually at it: if that Mac's display is asleep too, they stay where they are. Open the lid again and they come back.
 - **Keyboard light** (optional) — two short pulses and a long flash on the Caps Lock light as each device connects, so you know it is ready without looking at the screen.
 - **Guided setup** — a short first-run wizard explains each permission and what stops working without it. Nothing is requested behind your back.
 - **Private by design** — the two Macs talk directly over your local network, encrypted with a key derived from a code you type once. Nothing goes to the internet.
@@ -73,7 +73,7 @@ A full handoff of a keyboard and a trackpad takes about five to seven seconds.
 - **Bluetooth** via IOBluetooth: `IOBluetoothDevicePair` for pairing, `IOBluetoothIgnoreHIDDevice` / `IOBluetoothRemoveIgnoredHIDDevice` (the API behind the "Ignore this device" checkbox) to keep a released device from bouncing back, and connect/disconnect notifications for instant state. Forgetting the pairing uses the private `-remove` selector, the same thing System Settings' *Forget This Device* does.
 - **Discovery and transport** via the Network framework: each Mac advertises `_magichandoff._tcp` over Bonjour and connections are TLS 1.2 with a pre-shared key. The key is derived from the pairing code with PBKDF2 (200 000 rounds), so a captured handshake cannot be brute-forced back to the eight-character code. A 16-bit tag of the key is advertised so the app can tell "same code" from "different code" before connecting.
 - **Hotkeys** through Carbon's `RegisterEventHotKey`; no Accessibility permission needed.
-- **Sleep** handled with IOKit's system power notifications, which let the app finish the handoff before the Mac actually sleeps.
+- **Sleep and wake** handled with IOKit's system power notifications, which let the app finish a handoff before the Mac actually sleeps. A Mac with its lid closed on an external monitor answers on the network while its display sleeps but cannot complete a pairing, so a receiving Mac declares user activity first (which also lights an external monitor in clamshell) and holds off idle sleep for the duration.
 - **Keyboard light** by writing the HID LED output report to the keyboard. Its timing follows indicator-light guidance (IEC 60073 flash bands, pulses of at least 100 ms), and each state is re-sent every 50 ms for the duration of a step so nothing else can leave a visible gap. This is the one feature that needs the Input Monitoring permission, which is why it is off by default.
 
 ## Permissions
