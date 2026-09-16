@@ -430,8 +430,17 @@ final class BluetoothController: NSObject, ObservableObject {
     /// - Parameter freshlyReleased: the other Mac just confirmed it removed its
     ///   bond, so the device is unowned and in pairing mode. Any bond we still
     ///   hold is stale by definition; skip the connect probe and pair directly.
-    func take(_ id: String, liftIgnoreFirst: Bool = false, freshlyReleased: Bool = false, completion: ((Bool) -> Void)? = nil) {
+    /// - Parameter pairWindow: how long a fresh pairing may page the device before
+    ///   giving up. Nil uses the normal limit. A short window turns an attempt
+    ///   into a cheap probe, used while waiting for a device that another,
+    ///   unreachable Mac still holds.
+    /// - Parameter quiet: leave routine per-attempt lines out of the log.
+    func take(_ id: String, liftIgnoreFirst: Bool = false, freshlyReleased: Bool = false,
+              pairWindow: TimeInterval? = nil, quiet: Bool = false,
+              completion: ((Bool) -> Void)? = nil) {
         let id = id.canonicalBluetoothAddress
+        pairWindows[id] = pairWindow
+        setQuiet(id, quiet)
         if let completion { addWaiter(id, .take, completion) }
         opStarted[id] = Date()
         releasedOnPurpose[id] = nil
@@ -550,6 +559,26 @@ final class BluetoothController: NSObject, ObservableObject {
         return taking
     }
 
+    // MARK: - Short, quiet attempts
+
+    /// Per-device paging limit for the current take (main queue).
+    private var pairWindows: [String: TimeInterval] = [:]
+    /// Devices whose routine attempt lines stay out of the log. Read from the
+    /// Bluetooth queue too, hence the lock.
+    private let quietLock = NSLock()
+    private var quietIDs: Set<String> = []
+
+    private func isQuiet(_ id: String) -> Bool {
+        quietLock.lock(); defer { quietLock.unlock() }
+        return quietIDs.contains(id)
+    }
+
+    private func setQuiet(_ id: String, _ on: Bool) {
+        quietLock.lock()
+        if on { quietIDs.insert(id) } else { quietIDs.remove(id) }
+        quietLock.unlock()
+    }
+
     private func startPairing(id: String, name: String) {
         guard let fresh = IOBluetoothDevice(addressString: id),
               let pair = IOBluetoothDevicePair(device: fresh) else {
@@ -569,7 +598,7 @@ final class BluetoothController: NSObject, ObservableObject {
             DispatchQueue.main.async { self.clearPending(id) }
             setState(.failed("pairing \(r)"), for: id)
         } else {
-            append("\(name): pairing started \(elapsed(id))")
+            if !isQuiet(id) { append("\(name): pairing started \(elapsed(id))") }
         }
     }
 
@@ -604,15 +633,18 @@ final class BluetoothController: NSObject, ObservableObject {
 
     private func armPairTimeout(id: String, name: String) {
         pairTimeouts[id]?.cancel()
+        let window = pairWindows[id] ?? Tuning.pairTimeout
         let work = DispatchWorkItem { [weak self] in
             guard let self, let pair = self.pendingPairs[id] else { return }
             pair.stop()
             self.clearPending(id)
-            self.append("\(name): pairing did not finish within \(Int(Tuning.pairTimeout))s")
+            if !self.isQuiet(id) {
+                self.append("\(name): pairing did not finish within \(Int(window))s")
+            }
             self.setState(.failed("timed out"), for: id)
         }
         pairTimeouts[id] = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Tuning.pairTimeout, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + window, execute: work)
     }
 
     private func clearPending(_ id: String) {
@@ -678,6 +710,10 @@ final class BluetoothController: NSObject, ObservableObject {
 
     /// Main queue only. Fires pending completions once the state is terminal.
     private func resolveWaiters(id: String, state: Peripheral.State) {
+        if !state.isBusy {
+            pairWindows[id] = nil
+            setQuiet(id, false)
+        }
         guard !state.isBusy, let pending = waiters[id], !pending.isEmpty else { return }
         waiters[id] = nil
         for w in pending {
@@ -780,10 +816,12 @@ extension BluetoothController {
         } else if error == 4 {
             // HCI "page timeout": the device never answered. Magic devices ignore
             // other hosts while connected, so it is almost certainly on the other Mac.
-            append("\(name): no answer (error 4) \(elapsed(id)). It is probably connected to your other Mac.")
+            if !isQuiet(id) {
+                append("\(name): no answer (error 4) \(elapsed(id)). It is probably connected to your other Mac.")
+            }
             setState(.failed("held by another Mac?"), for: id)
         } else {
-            append("\(name): pairing failed (\(error)) \(elapsed(id))")
+            if !isQuiet(id) { append("\(name): pairing failed (\(error)) \(elapsed(id))") }
             setState(.failed("pairing \(error)"), for: id)
         }
     }

@@ -35,6 +35,13 @@ struct Peer: Identifiable, Equatable {
     /// Short tag of the pairing code that Mac uses (see AppSettings.advertisedTag).
     let tag: String?
     let endpoint: NWEndpoint
+
+    /// The Bonjour service name, kept so the Mac can still be addressed after it
+    /// drops out of the browse results (asleep, lid closed, out of range).
+    var serviceName: String? {
+        if case .service(let name, _, _, _) = endpoint { return name }
+        return nil
+    }
 }
 
 enum PeerError: LocalizedError {
@@ -139,7 +146,7 @@ final class PeerService: ObservableObject {
                 "name": settings.thisMacName,
                 "tag": settings.advertisedTag ?? "",
             ])
-            let serviceName = String("\(settings.thisMacName) [\(settings.thisMacID.prefix(4))]".prefix(60))
+            let serviceName = Self.serviceName(macName: settings.thisMacName, macID: settings.thisMacID)
             l.service = NWListener.Service(name: serviceName, type: Self.serviceType, domain: nil, txtRecord: txt)
             l.stateUpdateHandler = { [weak self] state in
                 switch state {
@@ -244,6 +251,18 @@ final class PeerService: ObservableObject {
             if found != self.peers { self.peers = found }
             if !found.isEmpty { self.localNetwork = .allowed }
         }
+    }
+
+    /// The Bonjour name a Mac advertises itself under.
+    static func serviceName(macName: String, macID: String) -> String {
+        String("\(macName) [\(macID.prefix(4))]".prefix(60))
+    }
+
+    /// An endpoint for a Mac that is not in the browse results right now. A
+    /// connection to it resolves the name again, which works as soon as that
+    /// Mac is back on the network.
+    static func endpoint(forServiceNamed name: String) -> NWEndpoint {
+        .service(name: name, type: serviceType, domain: "local.", interface: nil)
     }
 
     // MARK: Request / reply
