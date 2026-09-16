@@ -120,6 +120,7 @@ design/                       app icon source
 
 - **The other Mac shows "different code".** The pairing codes differ. Copy the code from one Mac's Settings into the other's.
 - **A device says "held by another Mac?".** It is still connected to the other Mac, which could not be reached. Make sure both Macs are on the same network and the other one is awake, then try again.
+- **The devices are stuck on a Mac that is asleep, closed or switched off.** Press Take all anyway. If that Mac does not answer, the menu says so and keeps trying for a minute and a half: wake that Mac, or turn the devices off and on with their switch, and they connect on their own.
 - **A device will not come back at all.** Turn it off and on with its switch; it reconnects to the Mac that last paired it. Advanced → *Scan for nearby devices* finds a device neither Mac currently knows.
 - **Logs.** Settings → Advanced shows the log, which is also written to `~/Library/Logs/Magic Handoff.log`.
 
