@@ -15,6 +15,9 @@ final class AppSettings: ObservableObject {
     /// Identity of the other Mac.
     @Published var peerID: String? { didSet { defaults.set(peerID, forKey: "peerID") } }
     @Published var peerName: String? { didSet { defaults.set(peerName, forKey: "peerName") } }
+    /// The other Mac's Bonjour service name, so it can be asked to release the
+    /// devices even when it is not currently visible on the network.
+    @Published var peerServiceName: String? { didSet { defaults.set(peerServiceName, forKey: "peerServiceName") } }
     @Published var handoffOnSleep: Bool { didSet { defaults.set(handoffOnSleep, forKey: "handoffOnSleep") } }
     /// After a sleep handoff, bring the same devices back when this Mac wakes.
     @Published var takeBackOnWake: Bool { didSet { defaults.set(takeBackOnWake, forKey: "takeBackOnWake") } }
@@ -41,6 +44,7 @@ final class AppSettings: ObservableObject {
         pairingCode = stored.isEmpty ? Self.generateCode() : stored
         peerID = defaults.string(forKey: "peerID")
         peerName = defaults.string(forKey: "peerName")
+        peerServiceName = defaults.string(forKey: "peerServiceName")
         handoffOnSleep = defaults.object(forKey: "handoffOnSleep") as? Bool ?? true
         takeBackOnWake = defaults.object(forKey: "takeBackOnWake") as? Bool ?? true
         keepBonds = defaults.object(forKey: "keepBonds") as? Bool ?? false

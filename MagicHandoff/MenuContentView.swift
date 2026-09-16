@@ -93,6 +93,16 @@ struct MenuContentView: View {
         }
         .controlSize(.small)
 
+        if let notice = handoff.notice {
+            HStack(alignment: .top, spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+
         if let error = handoff.lastError {
             Text(error)
                 .font(.caption)
