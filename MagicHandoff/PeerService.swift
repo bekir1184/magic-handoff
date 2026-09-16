@@ -146,7 +146,7 @@ final class PeerService: ObservableObject {
                 "name": settings.thisMacName,
                 "tag": settings.advertisedTag ?? "",
             ])
-            let serviceName = String("\(settings.thisMacName) [\(settings.thisMacID.prefix(4))]".prefix(60))
+            let serviceName = Self.serviceName(macName: settings.thisMacName, macID: settings.thisMacID)
             l.service = NWListener.Service(name: serviceName, type: Self.serviceType, domain: nil, txtRecord: txt)
             l.stateUpdateHandler = { [weak self] state in
                 switch state {
@@ -251,6 +251,11 @@ final class PeerService: ObservableObject {
             if found != self.peers { self.peers = found }
             if !found.isEmpty { self.localNetwork = .allowed }
         }
+    }
+
+    /// The Bonjour name a Mac advertises itself under.
+    static func serviceName(macName: String, macID: String) -> String {
+        String("\(macName) [\(macID.prefix(4))]".prefix(60))
     }
 
     /// An endpoint for a Mac that is not in the browse results right now. A

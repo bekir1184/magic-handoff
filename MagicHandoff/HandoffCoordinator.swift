@@ -129,7 +129,10 @@ final class HandoffCoordinator: ObservableObject {
     /// browse results right now, so a take can still ask it to let go instead
     /// of paging devices it holds.
     private var rememberedPeer: Peer? {
-        guard let id = settings.peerID, let service = settings.peerServiceName else { return nil }
+        guard let id = settings.peerID else { return nil }
+        // Before it has been seen by this build, the name can be rebuilt: every
+        // Mac advertises itself as "<Mac name> [<first four of its id>]".
+        let service = settings.peerServiceName ?? PeerService.serviceName(macName: peerName, macID: id)
         return Peer(id: id, name: peerName, tag: nil, endpoint: PeerService.endpoint(forServiceNamed: service))
     }
 
