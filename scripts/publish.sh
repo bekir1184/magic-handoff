@@ -67,8 +67,7 @@ cask "magic-handoff" do
   version "$VERSION,$BUILD"
   sha256 "$SHA"
 
-  url "https://github.com/$REPO/releases/download/v#{version.csv.first}/Magic-Handoff-#{version.csv.first}-#{version.csv.second}.zip",
-      verified: "github.com/$REPO/"
+  url "https://github.com/$REPO/releases/download/v#{version.csv.first}/Magic-Handoff-#{version.csv.first}-#{version.csv.second}.zip"
   name "Magic Handoff"
   desc "Moves Magic Keyboard, Trackpad and Mouse between two Macs with one keystroke"
   homepage "https://github.com/$REPO"
@@ -78,7 +77,7 @@ cask "magic-handoff" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "Magic Handoff.app"
 
