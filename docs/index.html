@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magic Handoff — move your Magic Keyboard between two Macs</title>
+<meta name="description" content="A free macOS menu bar app that moves your Magic Keyboard, Trackpad and Mouse between two Macs with one keystroke. No cables, no re-pairing.">
+<link rel="icon" href="assets/icon.png">
+<meta property="og:title" content="Magic Handoff">
+<meta property="og:description" content="Move your Magic Keyboard, Trackpad and Mouse between two Macs with one keystroke.">
+<meta property="og:image" content="assets/icon.png">
+<meta property="og:type" content="website">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f6f7;
+    --panel: #ffffff;
+    --ink: #16181c;
+    --muted: #61656e;
+    --line: #e2e3e7;
+    --accent: #1f9d3a;
+    --accent-ink: #ffffff;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel: #1c1f24;
+      --ink: #f2f3f5;
+      --muted: #a2a7b0;
+      --line: #2b2f36;
+      --accent: #45e02c;
+      --accent-ink: #0d1710;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; }
+  header { text-align: center; }
+  header img.app-icon { width: 112px; height: 112px; }
+  h1 { font-size: 40px; line-height: 1.1; margin: 18px 0 8px; letter-spacing: -0.02em; }
+  .tagline { font-size: 19px; color: var(--muted); margin: 0 auto; max-width: 30em; }
+  .cta { margin: 30px 0 8px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .button {
+    display: inline-block; padding: 13px 22px; border-radius: 11px;
+    background: var(--accent); color: var(--accent-ink);
+    font-weight: 600; text-decoration: none; border: 0;
+  }
+  .button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .meta { color: var(--muted); font-size: 14px; text-align: center; margin: 0; }
+  .brew { margin: 22px auto 0; max-width: 520px; }
+  .brew-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; text-align: center; }
+  .brew-row {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 10px 10px 10px 14px;
+  }
+  code, .brew-row code {
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow-x: auto; white-space: nowrap; flex: 1;
+  }
+  .copy {
+    border: 1px solid var(--line); background: transparent; color: var(--ink);
+    border-radius: 8px; padding: 6px 11px; font-size: 13px; cursor: pointer; flex: none;
+  }
+  .copy:hover { border-color: var(--muted); }
+  figure { margin: 44px 0; text-align: center; }
+  figure img { max-width: 100%; border-radius: var(--radius); }
+  figure img.shot { border: 1px solid var(--line); }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 10px; }
+  h2 { font-size: 24px; margin: 48px 0 14px; letter-spacing: -0.01em; }
+  ul.features { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+  ul.features li {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px 18px;
+  }
+  ul.features b { display: block; margin-bottom: 3px; }
+  ul.plain { padding-left: 20px; }
+  ul.plain li { margin-bottom: 8px; }
+  kbd {
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px;
+    padding: 1px 6px; background: var(--panel);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 13px; color: var(--muted); font-weight: 600; }
+  footer {
+    margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 14px; text-align: center;
+  }
+  a { color: inherit; }
+  footer a, .tagline a { text-decoration-color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="app-icon" src="assets/icon.png" alt="Magic Handoff icon">
+    <h1>Magic Handoff</h1>
+    <p class="tagline">Move your Magic Keyboard, Magic Trackpad and Magic Mouse between two Macs with one keystroke. No cables, no re-pairing, no Bluetooth menu.</p>
+
+    <div class="cta">
+      <a class="button" id="download" href="https://github.com/bekir1184/magic-handoff/releases/latest/download/Magic-Handoff.zip">Download for macOS</a>
+      <a class="button secondary" href="https://github.com/bekir1184/magic-handoff">View on GitHub</a>
+    </div>
+    <p class="meta" id="release-meta">Free and open source. Signed and notarised by Apple, so it opens like any other app.</p>
+
+    <div class="brew">
+      <div class="brew-label">or install with Homebrew</div>
+      <div class="brew-row">
+        <code id="brew-cmd">brew install --cask bekir1184/tap/magic-handoff</code>
+        <button class="copy" id="copy">Copy</button>
+      </div>
+    </div>
+  </header>
+
+  <figure>
+    <img class="shot" src="assets/menu.png" width="359" alt="The Magic Handoff menu showing the other Mac and the two devices">
+    <figcaption>The menu: your other Mac, your devices, and one button to move them.</figcaption>
+  </figure>
+
+  <h2>How you use it</h2>
+  <p>Give each Mac a number in Settings. Press <kbd>⌘⇧2</kbd> on the keyboard and it, along with the trackpad and mouse, hops to your other Mac. Press <kbd>⌘⇧1</kbd> there to bring everything back. A full switch takes about five seconds.</p>
+
+  <figure>
+    <img src="assets/caps-lock.gif" alt="The Caps Lock light flashing as a device arrives">
+    <figcaption>Optional: the keyboard's own Caps Lock light confirms each device as it arrives, so you know it is ready without looking at the screen.</figcaption>
+  </figure>
+
+  <h2>What it does</h2>
+  <ul class="features">
+    <li><b>One keystroke</b>Two hotkeys stand for your two Macs. Pressing the key of the Mac that already has the devices does nothing, so you can hit it twice without thinking.</li>
+    <li><b>Menu bar status</b>The dot in the icon turns green when every device is on this Mac. You can also move a single device from the menu.</li>
+    <li><b>Sleep aware</b>Close the lid and the devices move to your other Mac, but only when someone is actually at it. If that Mac is asleep too, they stay where they are.</li>
+    <li><b>Handles the awkward cases</b>If the devices are stuck with a Mac that is asleep, closed or switched off, the app says what frees them and finishes the switch on its own as soon as that happens.</li>
+    <li><b>Private by design</b>The two Macs talk directly over your local network, encrypted with a key derived from a code you type once. Nothing goes to the internet, and no account is needed.</li>
+  </ul>
+
+  <h2>What you need</h2>
+  <ul class="plain">
+    <li>Two Macs running macOS 14 Sonoma or later, on the same Wi-Fi or wired network.</li>
+    <li>A Magic Keyboard, Magic Trackpad or Magic Mouse, the Bluetooth models.</li>
+    <li>Each Mac needs its own input to fall back on while the Magic devices are elsewhere, such as a MacBook's built-in keyboard and trackpad.</li>
+  </ul>
+
+  <h2>Setting it up</h2>
+  <ul class="plain">
+    <li>Install the app on both Macs and open it. A short setup explains each permission and what stops working without it.</li>
+    <li>One Mac shows a pairing code. Type it into the other. They find each other from there.</li>
+    <li>Give one Mac <kbd>⌘⇧1</kbd> and the other <kbd>⌘⇧2</kbd>, and you are done.</li>
+  </ul>
+
+  <h2>Permissions it asks for</h2>
+  <table>
+    <tr><th>Permission</th><th>Why</th><th>Without it</th></tr>
+    <tr><td>Bluetooth</td><td>Releasing and connecting the devices</td><td>Nothing works</td></tr>
+    <tr><td>Local Network</td><td>Finding your other Mac</td><td>No automatic switching</td></tr>
+    <tr><td>Input Monitoring, optional</td><td>Driving the keyboard's Caps Lock light</td><td>Everything works, no light</td></tr>
+  </table>
+  <p class="meta" style="text-align:left;margin-top:12px">Magic Handoff never reads what you type. Input Monitoring is macOS's blanket permission for opening a keyboard device, and the app only uses it to switch one light. It is off unless you turn it on.</p>
+
+  <footer>
+    <p><a href="https://github.com/bekir1184/magic-handoff">Source</a> · <a href="https://github.com/bekir1184/magic-handoff/releases">All releases</a> · <a href="https://github.com/bekir1184/magic-handoff/issues">Report a problem</a></p>
+    <p>MIT licensed. Made by Bekir Ersever.</p>
+  </footer>
+</main>
+
+<script>
+  document.getElementById("copy").addEventListener("click", async (event) => {
+    await navigator.clipboard.writeText(document.getElementById("brew-cmd").textContent.trim());
+    const button = event.currentTarget;
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = "Copy"; }, 1500);
+  });
+
+  // Name the current version on the button, and fall back quietly when offline.
+  fetch("https://api.github.com/repos/bekir1184/magic-handoff/releases/latest")
+    .then((response) => response.ok ? response.json() : Promise.reject())
+    .then((release) => {
+      const version = (release.tag_name || "").replace(/^v/, "");
+      if (!version) return;
+      document.getElementById("download").textContent = "Download " + version + " for macOS";
+      const date = new Date(release.published_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+      document.getElementById("release-meta").textContent =
+        "Version " + version + ", released " + date + ". Free and open source, signed and notarised by Apple.";
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>
