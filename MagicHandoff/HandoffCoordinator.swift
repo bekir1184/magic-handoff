@@ -280,7 +280,7 @@ final class HandoffCoordinator: ObservableObject {
                 // which, and it does not matter. Say what frees the devices, and
                 // finish on our own when that happens.
                 self.bluetooth.appendLog("\(peer.name) did not answer (\(error.localizedDescription)); waiting for it, or for the devices to be turned off and on")
-                self.waitForRelease(infos.map(\.id), from: peer, started: started)
+                self.waitForDevices(infos.map(\.id), peer: peer, reason: .peerSilent, started: started)
             }
         }
     }
@@ -294,11 +294,28 @@ final class HandoffCoordinator: ObservableObject {
     private static let waitAskTimeout: TimeInterval = 3
     private static let waitPairWindow: TimeInterval = 6
 
-    /// Loops until the devices are here or the time is up. Two things end the
-    /// wait: the other Mac answers (it then releases and we pair as usual), or
-    /// a device answers a page because it was turned off and on.
-    private func waitForRelease(_ ids: [String], from peer: Peer, started: Date) {
-        notice = "\(peer.name) isn't answering. Wake it, or turn the keyboard and trackpad off and on."
+    enum WaitReason {
+        /// The other Mac never answered, so it may still be holding the devices.
+        case peerSilent
+        /// The other Mac let go, but a device is not answering. Magic devices
+        /// park their radio when nobody touches them.
+        case devicesSilent
+    }
+
+    /// Keeps working on the devices that are not here yet instead of giving up.
+    /// Every cycle asks the other Mac to let go once more, then pages each
+    /// missing device briefly. It ends as soon as they are all here, or when the
+    /// time is up, and meanwhile the menu says what wakes them.
+    private func waitForDevices(_ ids: [String], peer: Peer?, reason: WaitReason, started: Date) {
+        let names = ids.compactMap { id in bluetooth.peripherals.first { $0.id == id }?.name }
+        let list = names.isEmpty ? "the device" : names.joined(separator: " and ")
+        switch reason {
+        case .peerSilent:
+            notice = "\(peer?.name ?? "The other Mac") isn't answering. Wake it, or turn \(list) off and on."
+        case .devicesSilent:
+            notice = "Waiting for \(list). Touch it or press a key to wake it, or turn it off and on."
+        }
+
         let deadline = Date().addingTimeInterval(Self.waitLimit)
         let awake = PowerAssertion.holdAwake(reason: "Magic Handoff: waiting for devices")
         var remaining = keyboardFirst(ids)
@@ -310,38 +327,48 @@ final class HandoffCoordinator: ObservableObject {
             if let failure { fail(failure) }
         }
 
+        func page(_ peerAnswered: Bool) {
+            takeAll(remaining, freshlyReleased: peerAnswered, pairWindow: Self.waitPairWindow, quiet: true) { results in
+                remaining.removeAll { results[$0] == true }
+                if remaining.isEmpty {
+                    self.bluetooth.appendLog("Took \(ids.count) device(s) \(Self.since(started))")
+                    finish(nil)
+                } else if Date() > deadline {
+                    switch reason {
+                    case .peerSilent:
+                        finish("\(peer?.name ?? "The other Mac") never answered and \(list) stayed with it. Wake it, or turn the devices off and on, then press Take all.")
+                    case .devicesSilent:
+                        finish("\(list) never answered. Touch it or turn it off and on, then press Take all.")
+                    }
+                } else {
+                    cycle()
+                }
+            }
+        }
+
         func cycle() {
+            guard let peer else { page(false); return }
+            // Asking again costs little and covers the other Mac waking up, or
+            // having taken the devices back in the meantime.
             peers.request(Message(type: "release", devices: remaining.compactMap { bluetooth.deviceInfo($0) }),
                           to: peer, timeout: Self.waitAskTimeout) { [weak self] result in
                 guard let self else { return }
+                var answered = false
                 if case .success = result {
-                    self.bluetooth.appendLog("\(peer.name) answered and released \(Self.since(started))")
-                    PowerAssertion.release(awake)
-                    self.notice = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.postReleaseSettle) {
-                        self.takeWithRetry(remaining, started: started, label: "Took", freshlyReleased: true)
+                    answered = true
+                    if reason == .peerSilent {
+                        self.bluetooth.appendLog("\(peer.name) answered and released \(Self.since(started))")
+                        self.notice = "\(peer.name) let go. Connecting…"
                     }
-                    return
                 }
-                // Still silent: give each missing device a short page. One that was
-                // turned off and on answers and gets paired right here.
-                self.takeAll(remaining, pairWindow: Self.waitPairWindow, quiet: true) { results in
-                    remaining.removeAll { results[$0] == true }
-                    if remaining.isEmpty {
-                        self.bluetooth.appendLog("Took \(ids.count) device(s) \(Self.since(started))")
-                        finish(nil)
-                    } else if Date() > deadline {
-                        finish("\(peer.name) never answered and \(remaining.count) device(s) stayed with it. Wake \(peer.name), or turn the devices off and on, then press Take all.")
-                    } else {
-                        cycle()
-                    }
+                DispatchQueue.main.asyncAfter(deadline: .now() + (answered ? Self.postReleaseSettle : 0)) {
+                    page(answered)
                 }
             }
         }
         cycle()
     }
 
-    /// Give the device a moment to notice the unbond and enter pairing mode.
     private static let postReleaseSettle: TimeInterval = 0.4
     /// After promoting a dark wake to a full wake, how long Bluetooth needs before pairing.
     private static let wakeSettle: TimeInterval = 2.5
@@ -367,12 +394,17 @@ final class HandoffCoordinator: ObservableObject {
                 self.takeAll(self.keyboardFirst(failed), liftIgnoreFirst: true) { retry in
                     PowerAssertion.release(awake)
                     self.busy = false
-                    let stillFailed = retry.filter { !$0.value }.count
-                    if stillFailed == 0 {
+                    let stillMissing = retry.filter { !$0.value }.map(\.key)
+                    if stillMissing.isEmpty {
                         self.playConnectedAfterMinimumLoading()
                         self.bluetooth.appendLog("\(label) \(ids.count) device(s) after retry \(Self.since(started))")
                     } else {
-                        self.fail("\(stillFailed) device(s) could not be taken. Turn the device off and on, then try again.")
+                        // The other Mac let go, but these are not answering: an
+                        // untouched Magic device parks its radio. Keep trying
+                        // quietly and say what wakes it.
+                        self.busy = true
+                        self.waitForDevices(stillMissing, peer: self.selectedPeer ?? self.rememberedPeer,
+                                            reason: .devicesSilent, started: started)
                     }
                 }
             }
