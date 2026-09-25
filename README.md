@@ -16,6 +16,10 @@
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT">
 </p>
 
+<p align="center">
+  <a href="https://bekir1184.github.io/magic-handoff/"><b>bekir1184.github.io/magic-handoff</b></a>
+</p>
+
 ---
 
 Apple's Magic peripherals only talk to one Mac at a time. If you use a laptop and a desktop, or a work Mac and a personal one, every switch means digging through Bluetooth settings on both machines or plugging in a cable. Magic Handoff makes the switch a single keystroke: press **⌘⇧2** on the keyboard and it, along with the trackpad and mouse, hops to your other Mac. Press **⌘⇧1** there to bring everything back.
@@ -51,7 +55,15 @@ Turn it on in Settings and the keyboard itself tells you when a device has lande
 
 ## Install
 
-1. Download the latest `Magic-Handoff-<version>.zip` from [Releases](https://github.com/bekir1184/magic-handoff/releases) on **both** Macs. The app is signed with a Developer ID and notarised by Apple, so it opens like any other app.
+On **both** Macs, either with Homebrew:
+
+```bash
+brew install --cask bekir1184/tap/magic-handoff
+```
+
+or by hand:
+
+1. Download [Magic-Handoff.zip](https://github.com/bekir1184/magic-handoff/releases/latest/download/Magic-Handoff.zip). The app is signed with a Developer ID and notarised by Apple, so it opens like any other app.
 2. Unzip and move `Magic Handoff.app` to Applications, then open it.
 3. Follow the setup: allow Bluetooth and Local Network, then connect the two Macs. One Mac shows a pairing code; type it into the other. As soon as both hold the same code they find each other automatically.
 4. In Settings, give one Mac **⌘⇧1** and the other **⌘⇧2**. The app warns if both use the same number.
@@ -99,6 +111,10 @@ scripts/build.sh --run
 
 `scripts/release.sh` produces the distributable: a Release build with the hardened runtime, signed with a Developer ID certificate, notarised through `notarytool` and stapled, written to `dist/`.
 
+`scripts/publish.sh` then ships it: it creates or updates the GitHub release, uploads the versioned zip plus a fixed-name `Magic-Handoff.zip` so that the download link on the site always points at the newest build, and updates the Homebrew cask in [bekir1184/homebrew-tap](https://github.com/bekir1184/homebrew-tap). It refuses to publish a build without a stapled notarisation ticket.
+
+The landing page is the `docs/` folder, served by GitHub Pages.
+
 ## Project layout
 
 ```
@@ -112,7 +128,8 @@ MagicHandoff/
   OnboardingView.swift        first-run setup
   MenuContentView.swift       menu bar popover
   SettingsView.swift          General / Keyboard Light / Advanced
-scripts/                      build.sh, release.sh
+scripts/                      build.sh, release.sh, publish.sh
+docs/                         the landing page served by GitHub Pages
 design/                       app icon source
 ```
 
