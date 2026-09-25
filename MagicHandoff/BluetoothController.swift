@@ -60,8 +60,12 @@ final class BluetoothController: NSObject, ObservableObject {
         /// after it on the same Mac races the unbond and fails.
         static let unbondSettle: TimeInterval = 0.5
         /// DevicePair.start() pages forever against a device held by the other
-        /// Mac, so we cap it.
-        static let pairTimeout: TimeInterval = 45
+        /// Mac, so we cap it. A pairing that is going to work lands in one to
+        /// three seconds; anything still running after this is stuck, and
+        /// retrying beats waiting.
+        static let pairTimeout: TimeInterval = 12
+        /// How long to wait for a link to actually go down after a bond removal.
+        static let linkCloseWait: TimeInterval = 1.5
         /// After pairing reports success, how long to wait for the link before
         /// nudging it with openConnection.
         static let postPairGrace: TimeInterval = 3
@@ -133,9 +137,9 @@ final class BluetoothController: NSObject, ObservableObject {
             for d in (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? [] {
                 guard let raw = d.addressString else { continue }
                 let id = raw.canonicalBluetoothAddress
-                let kind = Self.kind(of: d)
+                let kind = Self.kind(of: d, nameHint: self.displayName(id, d))
                 guard ids.contains(id) || kind != .other else { continue }
-                snapshot.append(LiveDevice(id: id, name: d.name ?? id, kind: kind,
+                snapshot.append(LiveDevice(id: id, name: self.displayName(id, d), kind: kind,
                                            paired: d.isPaired(), connected: d.isConnected()))
                 seen.insert(id)
             }
@@ -145,7 +149,7 @@ final class BluetoothController: NSObject, ObservableObject {
             //    is connected here can never read as disconnected.
             for id in ids where !seen.contains(id) {
                 guard let d = IOBluetoothDevice(addressString: id) else { continue }
-                snapshot.append(LiveDevice(id: id, name: d.name ?? id, kind: Self.kind(of: d),
+                snapshot.append(LiveDevice(id: id, name: self.displayName(id, d), kind: Self.kind(of: d, nameHint: self.displayName(id, d)),
                                            paired: d.isPaired(), connected: d.isConnected()))
             }
 
@@ -204,7 +208,7 @@ final class BluetoothController: NSObject, ObservableObject {
         }
     }
 
-    private static func kind(of device: IOBluetoothDevice) -> Peripheral.Kind {
+    private static func kind(of device: IOBluetoothDevice, nameHint: String = "") -> Peripheral.Kind {
         // Class of Device: major = peripheral (0x05); minor bits 6-7: 01 keyboard, 10 pointing.
         let cod = device.classOfDevice
         let major = (cod >> 8) & 0x1F
@@ -212,7 +216,7 @@ final class BluetoothController: NSObject, ObservableObject {
         let minor = (cod >> 2) & 0x3F
         let isKeyboard = (minor & 0x10) != 0
         let isPointing = (minor & 0x20) != 0
-        let name = (device.name ?? "").lowercased()
+        let name = (device.name.flatMap { $0.isEmpty ? nil : $0 } ?? nameHint).lowercased()
         if isKeyboard { return .keyboard }
         if isPointing { return name.contains("trackpad") ? .trackpad : .mouse }
         return .other
@@ -261,12 +265,26 @@ final class BluetoothController: NSObject, ObservableObject {
     private static let knownKey = "knownPeripherals"
 
     /// `known` is written on the main queue, but the Bluetooth queue has to read
-    /// the id list while building a snapshot, so a copy is kept behind a lock.
+    /// it while building a snapshot and while logging, so a copy is kept behind
+    /// a lock.
     private let knownIDsLock = NSLock()
     private var knownIDsCopy: [String] = []
+    private var knownNamesCopy: [String: String] = [:]
     private var knownIDs: [String] {
         knownIDsLock.lock(); defer { knownIDsLock.unlock() }
         return knownIDsCopy
+    }
+
+    /// The name to show for a device. Recent macOS hands back an empty name for
+    /// a device this Mac has no record of, which is exactly the case during a
+    /// handoff, so the name we were told by the other Mac comes first.
+    private func displayName(_ id: String, _ device: IOBluetoothDevice? = nil) -> String {
+        knownIDsLock.lock()
+        let stored = knownNamesCopy[id]
+        knownIDsLock.unlock()
+        if let stored, !stored.isEmpty { return stored }
+        if let live = device?.name, !live.isEmpty { return live }
+        return id
     }
 
     private func loadKnown() {
@@ -276,11 +294,15 @@ final class BluetoothController: NSObject, ObservableObject {
         known = Dictionary(decoded.map { ($0.key.canonicalBluetoothAddress, $0.value) },
                            uniquingKeysWith: { a, b in a.kind == .other ? b : a })
         knownIDsCopy = Array(known.keys)
+        knownNamesCopy = known.mapValues(\.name)
         if known.count != decoded.count { saveKnown() }
     }
 
     private func saveKnown() {
-        knownIDsLock.lock(); knownIDsCopy = Array(known.keys); knownIDsLock.unlock()
+        knownIDsLock.lock()
+        knownIDsCopy = Array(known.keys)
+        knownNamesCopy = known.mapValues(\.name)
+        knownIDsLock.unlock()
         if let data = try? JSONEncoder().encode(known) {
             UserDefaults.standard.set(data, forKey: Self.knownKey)
         }
@@ -336,7 +358,7 @@ final class BluetoothController: NSObject, ObservableObject {
     private func liftIgnoreIfNeeded(_ device: IOBluetoothDevice, id: String) {
         guard ignoredByUs.contains(id) else { return }
         unignore(device, id: id)
-        append("\(device.name ?? id): no longer ignored")
+        append("\(displayName(id, device)): no longer ignored")
     }
 
     private func unignoreAll() {
@@ -353,6 +375,8 @@ final class BluetoothController: NSObject, ObservableObject {
     func release(_ id: String, completion: ((Bool) -> Void)? = nil) {
         let id = id.canonicalBluetoothAddress
         if let completion { addWaiter(id, .release, completion) }
+        // An attempt left paging would fight whoever tries next.
+        cancelPairing(id)
         opStarted[id] = Date()
         setState(.releasing, for: id)
         let keep = keepBonds
@@ -361,7 +385,7 @@ final class BluetoothController: NSObject, ObservableObject {
             guard let device = IOBluetoothDevice(addressString: id) else {
                 self.setState(.failed("device not found"), for: id); return
             }
-            let name = device.name ?? id
+            let name = self.displayName(id, device)
 
             if keep {
                 // Fast switching: drop the link, keep the pairing. The device keeps
@@ -400,6 +424,11 @@ final class BluetoothController: NSObject, ObservableObject {
         DispatchQueue.main.async { self.releasedOnPurpose[id] = nil }
         if device.responds(to: Selector(("remove"))) {
             device.perform(Selector(("remove")))
+            // Removing the record does not always drop the radio link, and a Mac
+            // on its way to sleep keeps its Bluetooth links alive so a keypress
+            // can wake it. A device still attached here cannot finish pairing
+            // with the other Mac, so make sure the link is really gone.
+            ensureLinkClosed(id: id, name: name)
             append("\(name): bond removed \(elapsed(id)); ignoring its reconnects")
             queue.asyncAfter(deadline: .now() + Tuning.ignoreAfterRemoveDelay) { [weak self] in
                 guard let self, let again = IOBluetoothDevice(addressString: id) else { return }
@@ -451,7 +480,7 @@ final class BluetoothController: NSObject, ObservableObject {
             guard let device = IOBluetoothDevice(addressString: id) else {
                 self.setState(.failed("device not found"), for: id); return
             }
-            let name = device.name ?? id
+            let name = self.displayName(id, device)
 
             if self.ignoredByUs.contains(id) {
                 if liftIgnoreFirst {
@@ -488,6 +517,22 @@ final class BluetoothController: NSObject, ObservableObject {
             // 2) No bond: pair from scratch.
             self.startPairing(id: id, name: name)
         }
+    }
+
+    /// Closes a lingering link after the bond was removed, and waits briefly for
+    /// the radio to confirm. Runs on the Bluetooth queue.
+    private func ensureLinkClosed(id: String, name: String) {
+        guard let device = IOBluetoothDevice(addressString: id), device.isConnected() else { return }
+        _ = device.closeConnection()
+        let deadline = Date().addingTimeInterval(Tuning.linkCloseWait)
+        while Date() < deadline {
+            guard let again = IOBluetoothDevice(addressString: id), again.isConnected() else {
+                append("\(name): link closed as well")
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        append("\(name): still shows as linked after \(Tuning.linkCloseWait)s; the other Mac may have to wait for it")
     }
 
     /// Runs on the Bluetooth queue.
@@ -647,6 +692,13 @@ final class BluetoothController: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + window, execute: work)
     }
 
+    /// Stops a pairing attempt that is still paging the device. Main queue only.
+    private func cancelPairing(_ id: String) {
+        guard let pair = pendingPairs[id] else { return }
+        pair.stop()
+        clearPending(id)
+    }
+
     private func clearPending(_ id: String) {
         pendingPairs.removeValue(forKey: id)
         pairTimeouts[id]?.cancel()
@@ -660,7 +712,7 @@ final class BluetoothController: NSObject, ObservableObject {
         // Fast switching: we just let this device go so the other Mac can have it,
         // and it came straight back. Push it away again; the other Mac is paging.
         if let released = releasedOnPurpose[id], Date().timeIntervalSince(released) < Tuning.bounceWindow {
-            let name = device.name ?? id
+            let name = self.displayName(id, device)
             append("\(name): came back after release; closing again so the other Mac can take it")
             queue.async { _ = device.closeConnection() }
             return
@@ -670,7 +722,7 @@ final class BluetoothController: NSObject, ObservableObject {
             if case .taking = peripherals.first(where: { $0.id == id })?.state { return true }
             return false
         }()
-        if wasTaking { append("\(device.name ?? id): link up \(elapsed(id))") }
+        if wasTaking { append("\(displayName(id, device)): link up \(elapsed(id))") }
         setState(.connected, for: id)
     }
 
@@ -750,14 +802,19 @@ final class BluetoothController: NSObject, ObservableObject {
 
     private static func writeLogLine(_ line: String) {
         let data = Data((line + "\n").utf8)
+        // Rotate rather than rewrite in place: overwriting a file that another
+        // copy of the app is appending to leaves the two interleaved, which is
+        // how the log ended up out of order.
+        if let size = try? FileManager.default.attributesOfItem(atPath: logFileURL.path)[.size] as? Int,
+           size > 2_000_000 {
+            let previous = logFileURL.deletingLastPathComponent().appendingPathComponent("Magic Handoff.log.1")
+            try? FileManager.default.removeItem(at: previous)
+            try? FileManager.default.moveItem(at: logFileURL, to: previous)
+        }
         if let handle = try? FileHandle(forWritingTo: logFileURL) {
             defer { try? handle.close() }
-            // Keep the file from growing forever.
-            if let size = try? handle.seekToEnd(), size > 2_000_000 {
-                try? data.write(to: logFileURL)
-            } else {
-                try? handle.write(contentsOf: data)
-            }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
         } else {
             try? data.write(to: logFileURL)
         }
@@ -790,7 +847,7 @@ extension BluetoothController {
 
     @objc func devicePairingFinished(_ sender: Any!, error: IOReturn) {
         guard let pair = sender as? IOBluetoothDevicePair, let d = pair.device(), let id = d.addressString?.canonicalBluetoothAddress else { return }
-        let name = d.name ?? id
+        let name = displayName(id, d)
         DispatchQueue.main.async {
             guard self.pendingPairs[id] === pair else { return }   // stale / cancelled attempt
             self.clearPending(id)
@@ -835,7 +892,7 @@ extension BluetoothController: IOBluetoothDeviceInquiryDelegate {
         let addr = raw.canonicalBluetoothAddress
         let kind = Self.kind(of: device)
         guard kind != .other else { return }
-        let name = device.name ?? addr
+        let name = displayName(addr, device)
         if known[addr] == nil {
             known[addr] = KnownDevice(name: name, kind: kind)
             saveKnown()
