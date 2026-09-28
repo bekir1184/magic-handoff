@@ -66,6 +66,8 @@ final class BluetoothController: NSObject, ObservableObject {
         static let pairTimeout: TimeInterval = 12
         /// How long to wait for a link to actually go down after a bond removal.
         static let linkCloseWait: TimeInterval = 1.5
+        /// How long to spend waking a parked device before letting go of it.
+        static let wakeBeforeRelease: TimeInterval = 2.5
         /// After pairing reports success, how long to wait for the link before
         /// nudging it with openConnection.
         static let postPairGrace: TimeInterval = 3
@@ -386,6 +388,17 @@ final class BluetoothController: NSObject, ObservableObject {
                 self.setState(.failed("device not found"), for: id); return
             }
             let name = self.displayName(id, device)
+
+            // A device that has been idle drops its link and parks its radio. It
+            // still listens for the Mac it is bonded to, so waking it here is
+            // cheap; waking it from the other Mac is not possible at all, and
+            // that Mac would page a sleeping device for a minute or more.
+            if device.isPaired(), !device.isConnected() {
+                let r = self.boundedOpen(device, timeout: Tuning.wakeBeforeRelease)
+                self.append(device.isConnected()
+                    ? "\(name): woken up before handing it over \(self.elapsed(id))"
+                    : "\(name): could not be woken before handing it over (\(r)); the other Mac may have to wait for it")
+            }
 
             if keep {
                 // Fast switching: drop the link, keep the pairing. The device keeps

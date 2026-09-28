@@ -306,7 +306,10 @@ final class HandoffCoordinator: ObservableObject {
     /// Every cycle asks the other Mac to let go once more, then pages each
     /// missing device briefly. It ends as soon as they are all here, or when the
     /// time is up, and meanwhile the menu says what wakes them.
+    private var loggedPeerSilentWhileWaiting = false
+
     private func waitForDevices(_ ids: [String], peer: Peer?, reason: WaitReason, started: Date) {
+        loggedPeerSilentWhileWaiting = false
         let names = ids.compactMap { id in bluetooth.peripherals.first { $0.id == id }?.name }
         let list = names.isEmpty ? "the device" : names.joined(separator: " and ")
         switch reason {
@@ -328,7 +331,11 @@ final class HandoffCoordinator: ObservableObject {
         }
 
         func page(_ peerAnswered: Bool) {
-            takeAll(remaining, freshlyReleased: peerAnswered, pairWindow: Self.waitPairWindow, quiet: true) { results in
+            // Waiting means waiting for the person to touch the device, and its
+            // own connection attempt has to be allowed to land: keeping it on
+            // the ignore list would refuse exactly the thing we are waiting for.
+            takeAll(remaining, liftIgnoreFirst: true, freshlyReleased: peerAnswered,
+                    pairWindow: Self.waitPairWindow, quiet: true) { results in
                 remaining.removeAll { results[$0] == true }
                 if remaining.isEmpty {
                     self.bluetooth.appendLog("Took \(ids.count) device(s) \(Self.since(started))")
@@ -360,6 +367,9 @@ final class HandoffCoordinator: ObservableObject {
                         self.bluetooth.appendLog("\(peer.name) answered and released \(Self.since(started))")
                         self.notice = "\(peer.name) let go. Connecting…"
                     }
+                } else if reason == .devicesSilent, !self.loggedPeerSilentWhileWaiting {
+                    self.loggedPeerSilentWhileWaiting = true
+                    self.bluetooth.appendLog("\(peer.name) stopped answering while waiting for the devices")
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + (answered ? Self.postReleaseSettle : 0)) {
                     page(answered)
