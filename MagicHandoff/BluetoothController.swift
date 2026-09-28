@@ -172,7 +172,9 @@ final class BluetoothController: NSObject, ObservableObject {
             // A momentarily empty class of device or name must not overwrite what
             // we already know about the device.
             let kind = s.kind == .other ? (known[s.id]?.kind ?? s.kind) : s.kind
-            let name = s.name == s.id ? (known[s.id]?.name ?? s.name) : s.name
+            let stored = known[s.id]?.name
+            let keepStored = stored.map { !$0.isEmpty && $0 != s.id } ?? false
+            let name = (s.name.isEmpty || s.name == s.id) && keepStored ? stored! : s.name
             known[s.id] = KnownDevice(name: name, kind: kind)
         }
         saveKnown()
@@ -325,11 +327,26 @@ final class BluetoothController: NSObject, ObservableObject {
         peripherals.compactMap { deviceInfo($0.id) }
     }
 
-    /// Adds a device announced by the other Mac so it can be taken here. Main queue only.
+    /// Adds a device announced by the other Mac so it can be taken here, and
+    /// takes the chance to repair what we hold: an entry whose name was stored
+    /// while this Mac had no record of the device would keep that empty name
+    /// for good otherwise. Main queue only.
     func ensureKnown(_ info: DeviceInfo) {
         let id = info.id.canonicalBluetoothAddress
-        guard known[id] == nil else { return }
         let kind = Peripheral.Kind(rawValue: info.kind) ?? .other
+        guard !info.name.isEmpty, info.name != id else { return }
+
+        if let existing = known[id] {
+            guard existing.name.isEmpty || existing.name == id else { return }
+            known[id] = KnownDevice(name: info.name, kind: existing.kind == .other ? kind : existing.kind)
+            saveKnown()
+            if let i = peripherals.firstIndex(where: { $0.id == id }) {
+                peripherals[i].name = info.name
+                if peripherals[i].kind == .other { peripherals[i].kind = kind }
+            }
+            return
+        }
+
         known[id] = KnownDevice(name: info.name, kind: kind)
         saveKnown()
         peripherals.append(Peripheral(id: id, name: info.name, kind: kind, isPaired: false, state: .disconnected))

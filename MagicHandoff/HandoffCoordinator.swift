@@ -247,14 +247,42 @@ final class HandoffCoordinator: ObservableObject {
 
     // MARK: - Take (other Mac → this Mac)
 
+    /// A take in progress, and when it began. Both Macs reaching for the devices
+    /// at the same moment used to hand them back and forth without either one
+    /// keeping them.
+    private var takeInFlight = false
+    private var takeStartedAt: Double = 0
+    /// Bumped whenever a take starts or is abandoned; a waiting loop stops as
+    /// soon as it no longer matches.
+    private var takeToken = 0
+
+    private func beginTake(_ started: Date) {
+        busy = true
+        takeInFlight = true
+        takeStartedAt = started.timeIntervalSince1970
+        takeToken += 1
+    }
+
+    private func endTake() {
+        busy = false
+        takeInFlight = false
+    }
+
+    private func abortTake(_ reason: String) {
+        takeToken += 1
+        notice = nil
+        endTake()
+        bluetooth.appendLog(reason)
+    }
+
     func take(_ ids: [String]) {
         let infos = ids.compactMap { bluetooth.deviceInfo($0) }
         guard !infos.isEmpty else { return }
         guard !busy else { bluetooth.appendLog("Take ignored: a handoff is already running"); return }
-        busy = true
+        let started = Date()
+        beginTake(started)
         lastError = nil
         notice = nil
-        let started = Date()
 
         // 1) Ask the peer to let go and wait for its answer: pairing a device that
         //    is still linked to the other Mac fails with "no connection" (error 2).
@@ -269,10 +297,16 @@ final class HandoffCoordinator: ObservableObject {
         // Always ask, even when the other Mac is not in the network list right
         // now: paging devices it still holds cannot work.
         guard let peer = selectedPeer ?? rememberedPeer else { proceed(false); return }
-        peers.request(Message(type: "release", devices: infos), to: peer, timeout: Self.releaseAskTimeout) { [weak self] result in
+        peers.request(Message(type: "release", devices: infos, startedAt: takeStartedAt),
+                      to: peer, timeout: Self.releaseAskTimeout) { [weak self] result in
             guard let self else { return }
             switch result {
-            case .success:
+            case .success(let answer):
+                if answer.type == "busy" {
+                    self.abortTake("\(peer.name) is taking the devices right now; standing down")
+                    self.lastError = "\(peer.name) is taking the devices right now."
+                    return
+                }
                 self.bluetooth.appendLog("\(peer.name) released \(Self.since(started))")
                 proceed(true)
             case .failure(let error):
@@ -321,12 +355,14 @@ final class HandoffCoordinator: ObservableObject {
 
         let deadline = Date().addingTimeInterval(Self.waitLimit)
         let awake = PowerAssertion.holdAwake(reason: "Magic Handoff: waiting for devices")
+        let token = takeToken
         var remaining = keyboardFirst(ids)
 
         func finish(_ failure: String?) {
             PowerAssertion.release(awake)
+            guard token == takeToken else { return }   // a newer take, or we stood down
             notice = nil
-            busy = false
+            endTake()
             if let failure { fail(failure) }
         }
 
@@ -354,12 +390,20 @@ final class HandoffCoordinator: ObservableObject {
         }
 
         func cycle() {
+            guard token == takeToken else { PowerAssertion.release(awake); return }
             guard let peer else { page(false); return }
             // Asking again costs little and covers the other Mac waking up, or
             // having taken the devices back in the meantime.
-            peers.request(Message(type: "release", devices: remaining.compactMap { bluetooth.deviceInfo($0) }),
+            peers.request(Message(type: "release", devices: remaining.compactMap { bluetooth.deviceInfo($0) },
+                                  startedAt: self.takeStartedAt),
                           to: peer, timeout: Self.waitAskTimeout) { [weak self] result in
                 guard let self else { return }
+                if case .success(let answer) = result, answer.type == "busy" {
+                    PowerAssertion.release(awake)
+                    self.abortTake("\(peer.name) is taking the devices right now; standing down")
+                    self.lastError = "\(peer.name) is taking the devices right now."
+                    return
+                }
                 var answered = false
                 if case .success = result {
                     answered = true
@@ -394,7 +438,7 @@ final class HandoffCoordinator: ObservableObject {
             let failed = results.filter { !$0.value }.map(\.key)
             if failed.isEmpty {
                 PowerAssertion.release(awake)
-                self.busy = false
+                self.endTake()
                 self.playConnectedAfterMinimumLoading()
                 self.bluetooth.appendLog("\(label) \(ids.count) device(s) \(Self.since(started))")
                 return
@@ -403,7 +447,7 @@ final class HandoffCoordinator: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelay) {
                 self.takeAll(self.keyboardFirst(failed), liftIgnoreFirst: true) { retry in
                     PowerAssertion.release(awake)
-                    self.busy = false
+                    self.endTake()
                     let stillMissing = retry.filter { !$0.value }.map(\.key)
                     if stillMissing.isEmpty {
                         self.playConnectedAfterMinimumLoading()
@@ -412,7 +456,7 @@ final class HandoffCoordinator: ObservableObject {
                         // The other Mac let go, but these are not answering: an
                         // untouched Magic device parks its radio. Keep trying
                         // quietly and say what wakes it.
-                        self.busy = true
+                        self.beginTake(started)
                         self.waitForDevices(stillMissing, peer: self.selectedPeer ?? self.rememberedPeer,
                                             reason: .devicesSilent, started: started)
                     }
@@ -486,8 +530,22 @@ final class HandoffCoordinator: ObservableObject {
                           displayAsleep: PowerAssertion.displayIsAsleep))
 
         case "release":
-            let ids = (message.devices ?? []).map(\.id)
-            bluetooth.appendLog("\(message.fromName ?? "Peer") asked to release \(ids.count) device(s)")
+            let infos = message.devices ?? []
+            infos.forEach { bluetooth.ensureKnown($0) }   // also repairs a name we lost
+            let ids = infos.map(\.id)
+            let asker = message.fromName ?? "The other Mac"
+            bluetooth.appendLog("\(asker) asked to release \(ids.count) device(s)")
+
+            if takeInFlight {
+                // Both Macs want them. The one that started first keeps going.
+                if let theirs = message.startedAt, theirs < takeStartedAt {
+                    abortTake("\(asker) started taking first; standing down and letting go")
+                } else {
+                    bluetooth.appendLog("Not letting go: this Mac is taking them right now")
+                    reply(Message(type: "busy"))
+                    return
+                }
+            }
 
             releaseAll(ids) { results in
                 reply(Message(type: "released", results: results))
@@ -498,8 +556,8 @@ final class HandoffCoordinator: ObservableObject {
             infos.forEach { bluetooth.ensureKnown($0) }
             reply(Message(type: "accepted"))
             bluetooth.appendLog("\(message.fromName ?? "Peer") handed over \(infos.count) device(s); taking them")
-            busy = true
             let started = Date()
+            beginTake(started)
             // A dark-woken Mac (lid closed, display off) answers on the network but
             // cannot pair. Wake it fully first and give Bluetooth a moment.
             var settle = Self.postReleaseSettle
