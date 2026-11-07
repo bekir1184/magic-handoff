@@ -58,8 +58,12 @@ Turn it on in Settings and the keyboard itself tells you when a device has lande
 On **both** Macs, either with Homebrew:
 
 ```bash
+brew tap bekir1184/tap
+brew trust bekir1184/tap
 brew install --cask bekir1184/tap/magic-handoff
 ```
+
+Homebrew asks for the middle step before it will load a cask from a tap outside its own repositories.
 
 or by hand:
 
