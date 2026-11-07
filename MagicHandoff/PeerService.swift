@@ -27,6 +27,10 @@ struct Message: Codable {
     /// Whether the sender's display is asleep, carried in pong. A Mac whose
     /// display is off has nobody at it, so it is no place to send devices.
     var displayAsleep: Bool?
+    /// When the sender's own take began, carried in a release request. If both
+    /// Macs are taking at once, the one that started first wins and the other
+    /// stands down, instead of the two pulling the devices apart.
+    var startedAt: Double?
 }
 
 struct Peer: Identifiable, Equatable {
